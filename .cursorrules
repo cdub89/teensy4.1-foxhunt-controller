@@ -10,6 +10,13 @@ This project implements a dual-band radio "fox" (hidden transmitter) using a Tee
 
 ## Documentation Requirements
 
+### File Creation Policy:
+- **DO NOT** create unnecessary AI-generated markdown files (*.mdc, *_SETUP.md, etc.)
+- **DO NOT** create step-by-step setup guides unless explicitly requested
+- **ONLY** update existing documentation files (README.md, specification, hardware reference)
+- **AVOID** creating temporary helper files that clutter the repository
+- If documentation is needed, update existing files or ask first
+
 ### After Major Features or Milestones:
 1. **UPDATE** `@Teensy Foxhunt Controller Project Specification.md` with:
    - New features implemented

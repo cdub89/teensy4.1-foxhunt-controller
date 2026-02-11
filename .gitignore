@@ -62,3 +62,12 @@ docs/_build/
 # Personal notes (keep template)
 NOTES.md
 personal_notes.txt
+
+# AI-generated setup/helper files
+GITHUB_SETUP.md
+*_SETUP.md
+
+# AI markdown documentation (keep essential project docs)
+*.mdc
+!*Controller*.mdc
+!*Reference*.mdc
