@@ -1,0 +1,64 @@
+# Teensy 4.1 Foxhunt Controller - Git Ignore
+
+# Arduino/PlatformIO build files
+.pio/
+.vscode/
+.pioenvs/
+.piolibdeps/
+.clang_complete
+.gcc-flags.json
+*.o
+*.elf
+*.hex
+*.eep
+*.lss
+*.map
+*.sym
+
+# Compiled binaries
+*.bin
+*.out
+*.app
+
+# SD Card test files (keep examples, ignore personal content)
+/sd_card_content/*.WAV
+!/sd_card_content/EXAMPLE*.WAV
+
+# Log files
+*.log
+logs/
+debug_*.txt
+
+# Personal configuration
+CONFIG.TXT
+config.txt
+secrets.h
+callsign.h
+
+# IDE files
+.vscode/
+.idea/
+*.code-workspace
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Backup files
+*.bak
+*.tmp
+*~
+*.swp
+
+# Test files
+test_output/
+*.test
+
+# Documentation builds
+docs/_build/
+*.pdf
+
+# Personal notes (keep template)
+NOTES.md
+personal_notes.txt

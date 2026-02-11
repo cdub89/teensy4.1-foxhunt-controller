@@ -1,0 +1,161 @@
+# Teensy 4.1 Foxhunt Controller Project Rules
+
+## Project Context
+This project implements a dual-band radio "fox" (hidden transmitter) using a Teensy 4.1 microcontroller and Baofeng UV-5R radio for amateur radio foxhunt events.
+
+## CRITICAL: Always Read Project Specification First
+- **ALWAYS** read `@Teensy Foxhunt Controller Project Specification.md` before writing any code
+- This file contains hardware constraints, pinout mappings, and feature requirements
+- Never assume pin assignments or voltage levels - always verify against the specification
+
+## Documentation Requirements
+
+### After Major Features or Milestones:
+1. **UPDATE** `@Teensy Foxhunt Controller Project Specification.md` with:
+   - New features implemented
+   - Configuration changes
+   - Pin assignment modifications
+   - Power consumption estimates
+   - Performance characteristics
+
+2. **DOCUMENT** system architecture changes:
+   - State machine diagrams
+   - Timing requirements
+   - Audio processing pipeline
+   - Safety interlock mechanisms
+
+3. **TRACK** all code migrations/refactoring:
+   - Document breaking changes
+   - List deprecated functions
+   - Note library version updates
+   - Record configuration parameter changes
+
+## Reference Code
+- Sample code documented in `@Teensy4.1 Controller Code.mdc`
+- Uses **Pin 2** for PTT control (via 2N2222 transistor)
+- Uses **Pin 12** for audio tone generation
+- Uses **Pin 13** for status LED (built-in)
+
+## Coding Standards
+
+### Architecture Requirements:
+1. **NON-BLOCKING DESIGN MANDATORY**
+   - Use `millis()` for timing, NEVER `delay()` in production code
+   - Implement state machines for complex sequences
+   - Keep `loop()` function responsive (< 10ms execution time)
+   - Allow concurrent task handling (LED blink, sensor checks, etc.)
+
+2. **Baofeng UV-5R Specific Timing:**
+   - **1000ms PTT pre-roll** required before audio transmission
+   - Account for squelch opening time on receiving radios
+   - Minimum 500ms tail after audio ends before PTT release
+
+3. **Safety First:**
+   - Implement watchdog timer to prevent stuck PTT
+   - Duty cycle management to prevent radio overheating
+   - Voltage monitoring for battery protection
+   - Graceful degradation on errors
+
+### Pin Usage (NEVER deviate without updating spec):
+```cpp
+const int PTT_PIN = 2;      // Digital Output -> 1k Resistor -> 2N2222 Base
+const int AUDIO_PIN = 12;   // PWM/MQS -> 10uF Cap -> 10k Pot -> Radio Mic
+const int LED_PIN = 13;     // Built-in LED (status indicator)
+```
+
+### Power Constraints:
+- Input: 14.8V 4S LiPo (SOCOKIN 5200mAh)
+- Buck A: 8.0V for radio (via battery eliminator)
+- Buck B: 5.0V for Teensy VIN
+- 5A inline fuse on XT60 main lead
+- Consider low-power modes for extended operation
+
+### Required Features:
+1. **Morse Code Engine:**
+   - Configurable WPM (Words Per Minute)
+   - Standard ITU Morse timing
+   - Clean tone generation (minimize harmonics)
+
+2. **Audio Integration:**
+   - Teensy Audio Library for .wav playback
+   - SD card support for voice files
+   - Proper audio mixing/multiplexing
+
+3. **Duty Cycle Management:**
+   - Configurable ON/OFF times
+   - Temperature monitoring (if available)
+   - Automatic shutdown on overrun
+
+4. **Power Management:**
+   - Snooze/deep sleep during OFF periods
+   - Battery voltage monitoring
+   - Low-battery warning/shutdown
+
+## Code Style
+
+### Naming Conventions:
+```cpp
+// Constants: UPPER_CASE_WITH_UNDERSCORES
+const int PTT_PIN = 2;
+const long TRANSMIT_INTERVAL = 60000;
+
+// Variables: camelCase
+unsigned long lastTransmitTime = 0;
+bool isPttActive = false;
+
+// Functions: camelCase with descriptive names
+void keyRadio();
+void sendMorseCode(const char* text);
+unsigned long calculateDutyCycle();
+```
+
+### Comments:
+- Document WHY, not WHAT (code should be self-documenting)
+- Note hardware timing constraints
+- Reference specification sections where applicable
+- Mark safety-critical sections clearly
+
+### Error Handling:
+```cpp
+// Check for valid states before operations
+if (isPttActive && (millis() - pttStartTime > MAX_PTT_TIME)) {
+    // SAFETY: Force PTT off after timeout
+    emergencyPttRelease();
+    logError("PTT timeout exceeded");
+}
+```
+
+## Testing Checklist
+Before marking any feature complete:
+- [ ] Non-blocking behavior verified (no delay() calls in critical paths)
+- [ ] PTT timing verified (1000ms pre-roll, proper tail)
+- [ ] Watchdog timer tested (intentional hang recovery)
+- [ ] Duty cycle limits enforced
+- [ ] Low-battery condition handled
+- [ ] Audio quality checked (clean tones, no distortion)
+- [ ] Power consumption measured
+
+## Library Usage
+Prefer these libraries for Teensy 4.1:
+- **Audio Library** (native Teensy): For audio playback and synthesis
+- **Snooze Library**: For power management
+- **TimeLib**: For RTC functions if needed
+- **SD Library**: For file access
+- **Watchdog_t4**: For safety interlocks
+
+## Version Control
+- Commit working features atomically
+- Tag releases with semantic versioning
+- Update specification document BEFORE committing major features
+- Include hardware revision in commit messages if relevant
+
+## When In Doubt
+1. Check the project specification first
+2. Review sample code for patterns
+3. Prioritize safety and non-blocking design
+4. Test with oscilloscope/logic analyzer for timing verification
+5. Document assumptions and ask for clarification
+
+---
+
+**Remember:** This is safety-critical code. A stuck PTT can drain batteries, overheat equipment, or cause interference. Always implement defensive programming practices.

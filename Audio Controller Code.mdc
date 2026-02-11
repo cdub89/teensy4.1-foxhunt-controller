@@ -1,0 +1,60 @@
+#include <Audio.h>
+#include <Wire.h>
+#include <SPI.h>
+#include <SD.h>
+#include <SerialFlash.h>
+
+// GUItool: begin automatically generated code
+AudioPlaySdWav           playWav1;       
+AudioOutputMQS           mqs1;           // MQS uses Pin 10 and 12 on Teensy 4.1
+AudioConnection          patchCord1(playWav1, 0, mqs1, 0);
+AudioConnection          patchCord2(playWav1, 1, mqs1, 1);
+// GUItool: end automatically generated code
+
+const int pttPin = 2;
+const int ledPin = 13;
+const long transmitInterval = 60000; // 1 minute delay
+
+void setup() {
+  pinMode(pttPin, OUTPUT);
+  pinMode(ledPin, OUTPUT);
+  digitalWrite(pttPin, LOW);
+
+  Serial.begin(9600);
+  AudioMemory(8);
+
+  // Initialize the SD card
+  if (!(SD.begin(BUILTIN_SDCARD))) {
+    while (1) {
+      Serial.println("Unable to access the SD card");
+      delay(500);
+    }
+  }
+}
+
+void playFoxFile(const char *filename) {
+  // 1. Key the radio
+  digitalWrite(pttPin, HIGH);
+  digitalWrite(ledPin, HIGH);
+  delay(1000); // Wait for Baofeng squelch to open
+
+  // 2. Play the audio
+  Serial.print("Playing file: ");
+  Serial.println(filename);
+  playWav1.play(filename);
+  
+  delay(25); // Short wait for library to start
+  while (playWav1.isPlaying()) {
+    // Just wait for audio to finish
+  }
+
+  // 3. Un-key the radio
+  delay(500);
+  digitalWrite(pttPin, LOW);
+  digitalWrite(ledPin, LOW);
+}
+
+void loop() {
+  playFoxFile("FOXID.WAV"); // Make sure this matches your file name
+  delay(transmitInterval);
+}
