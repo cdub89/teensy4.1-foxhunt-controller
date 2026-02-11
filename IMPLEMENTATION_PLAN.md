@@ -107,7 +107,7 @@ Both reference implementations are functional and documented in the project spec
 
 ### Objectives
 - Implement critical safety features
-- Add battery monitoring
+- Add dual-threshold battery watchdog (soft warning + hard shutdown)
 - Enable power-saving modes
 
 ### Tasks
@@ -128,24 +128,36 @@ Both reference implementations are functional and documented in the project spec
 - Confirm PTT releases on watchdog trigger
 - Validate recovery behavior
 
-#### Task 3.2: Battery Voltage Monitoring
+#### Task 3.2: Battery Voltage Monitoring Watchdog
 **Priority:** HIGH  
 **Estimated Time:** 4-5 hours
 
 **Hardware Setup:**
-1. Build voltage divider (R1=47kΩ, R2=10kΩ)
+1. Build voltage divider (R1=10kΩ, R2=2.2kΩ)
 2. Connect between battery positive and GND
-3. Center tap to Pin A0
-4. Add 0.1µF capacitor for noise filtering
+3. Center tap to Pin A9 (ADC input)
+4. Add 100nF ceramic capacitor parallel with R2 for noise filtering
 
-See [Hardware Reference](Teensy4%20Fox%20Hardware%20Reference.md) for complete power distribution wiring.
+**Voltage Divider Specifications:**
+- Divider Ratio: 2.2kΩ / (10kΩ + 2.2kΩ) = 0.1803
+- Fully Charged (16.8V) → Pin A9 sees 3.03V
+- Nominal (14.8V) → Pin A9 sees 2.67V
+- Soft Warning (13.6V) → Pin A9 sees 2.45V
+- Hard Shutdown (12.8V) → Pin A9 sees 2.31V
+
+See [Hardware Reference](Teensy4%20Fox%20Hardware%20Reference.md) for complete wiring details and circuit diagram.
 
 **Software Implementation:**
 ```cpp
-const int BATTERY_PIN = A0;
-const float VOLTAGE_DIVIDER_RATIO = 5.7;
-const float LOW_BATTERY_THRESHOLD = 13.2;
-const float CRITICAL_BATTERY = 12.8;
+const int BATTERY_PIN = A9;
+const float VOLTAGE_DIVIDER_RATIO = 5.545;  // (R1 + R2) / R2 = 12.2k / 2.2k
+const float SOFT_WARNING_THRESHOLD = 13.6;   // 3.4V per cell
+const float HARD_SHUTDOWN_THRESHOLD = 12.8;  // 3.2V per cell
+const float WARNING_CLEAR_THRESHOLD = 14.0;  // Hysteresis
+
+bool batteryWarningActive = false;
+bool batteryShutdownActive = false;
+int warningCounter = 0;
 
 // Moving average for stability
 float batteryReadings[10];
@@ -165,27 +177,59 @@ float readBatteryVoltage() {
   return sum / 10.0;
 }
 
-void checkBattery() {
+void checkBatteryStatus() {
   float voltage = readBatteryVoltage();
   
-  if (voltage < CRITICAL_BATTERY) {
-    // Emergency shutdown
-    digitalWrite(PTT_PIN, LOW);
-    logToSD("CRITICAL: Battery shutdown at " + String(voltage) + "V");
-    deepSleep(); // Never wake up
+  // CRITICAL: Hard shutdown check (permanent PTT disable)
+  if (voltage < HARD_SHUTDOWN_THRESHOLD) {
+    triggerBatteryShutdown(voltage);
+    return; // Never transmit again
   }
-  else if (voltage < LOW_BATTERY_THRESHOLD) {
-    // Play low battery warning
-    playLowBatteryWarning();
+  
+  // Soft warning with hysteresis
+  if (!batteryWarningActive && voltage < SOFT_WARNING_THRESHOLD) {
+    batteryWarningActive = true;
+    warningCounter = 0;
+  } else if (batteryWarningActive && voltage > WARNING_CLEAR_THRESHOLD) {
+    batteryWarningActive = false;
+  }
+  
+  // Play warning every 5 cycles
+  if (batteryWarningActive) {
+    warningCounter++;
+    if (warningCounter >= 5) {
+      playLowBatteryWarning(voltage);
+      warningCounter = 0;
+    }
+  }
+}
+
+void triggerBatteryShutdown(float voltage) {
+  batteryShutdownActive = true;
+  
+  // Immediately disable PTT (high impedance)
+  pinMode(PTT_PIN, INPUT);
+  
+  // Log critical event
+  Serial.print("CRITICAL: Battery shutdown at ");
+  Serial.print(voltage, 2);
+  Serial.println("V");
+  logToSD("CRITICAL: Battery shutdown at " + String(voltage) + "V");
+  
+  // Enter emergency mode with SOS LED
+  while (true) {
+    blinkSOS();
+    Snooze.sleep(60000); // Wake every 60s to continue SOS
   }
 }
 ```
 
 **Testing:**
-- Calibrate voltage divider with multimeter
-- Test low battery warnings
-- Verify critical shutdown behavior
+- Calibrate voltage divider with multimeter at 16.8V, 14.8V, 13.6V
+- Test soft warning triggers and hysteresis behavior
+- Verify hard shutdown with PTT disabled (set to INPUT mode)
 - Validate moving average smoothing
+- Test SOS LED pattern in emergency mode
 
 #### Task 3.3: Duty Cycle Management
 **Priority:** HIGH  
@@ -360,7 +404,9 @@ void selectTransmissionType() {
 - `BATT75.WAV` - "Battery three quarters"
 - `BATT50.WAV` - "Battery half"
 - `BATT25.WAV` - "Battery low"
-- `LOWBATT.WAV` - "Low battery warning"
+- `LOWBATT.WAV` - "Low battery warning" (triggered at 13.6V)
+
+**Note:** The battery watchdog system (Task 3.2) automatically triggers low battery warnings at the 13.6V threshold. This task provides enhanced user feedback with percentage-based announcements.
 
 **Testing:**
 - Test at various voltage levels
@@ -532,7 +578,8 @@ MORSE_WPM=12
 TONE_FREQ=800
 TX_INTERVAL=60
 DUTY_CYCLE_MAX=20
-LOW_BATT_THRESHOLD=13.2
+BATT_SOFT_WARNING=13.6
+BATT_HARD_SHUTDOWN=12.8
 MODE=HYBRID
 DTMF_ENABLED=1
 VOX_ENABLED=0
@@ -639,7 +686,8 @@ Hardware:
 [ ] Radio set to correct frequency/CTCSS
 [ ] Radio volume adjusted (test with speaker)
 [ ] Enclosure weatherproofed
-[ ] Audio filter components installed (1kΩ resistor + 10µF cap)
+[ ] Audio filter components installed (1kΩ resistor + 10µF cap + 10kΩ pot)
+[ ] Battery voltage divider installed (10kΩ + 2.2kΩ + 100nF cap on Pin A9)
 
 See [Hardware Reference](Teensy4%20Fox%20Hardware%20Reference.md) for complete parts checklist and wiring verification.
 
@@ -647,17 +695,21 @@ Software:
 [ ] Callsign configured correctly
 [ ] Transmission interval appropriate for hunt
 [ ] Duty cycle limits set
-[ ] Low battery threshold configured
+[ ] Battery thresholds configured (13.6V soft warning, 12.8V hard shutdown)
 [ ] SD card has free space for logs
 [ ] Clock set to correct time (if using RTC)
+[ ] Battery voltage calibration verified
 
 Testing:
 [ ] Test transmission received on second radio
 [ ] Verify PTT timing (1s pre-roll, 0.5s tail)
 [ ] Check audio levels (not distorted)
-[ ] Confirm battery voltage reading accurate
+[ ] Confirm battery voltage reading accurate (multimeter vs. ADC)
+[ ] Test soft warning at 13.6V (triggers alert)
+[ ] Test hard shutdown at 12.8V (PTT disabled permanently)
 [ ] Test watchdog recovery (optional)
 [ ] Verify LED indicators working
+[ ] Confirm SOS pattern activates on critical battery
 
 Post-Hunt:
 [ ] Retrieve unit safely
@@ -665,6 +717,7 @@ Post-Hunt:
 [ ] Check battery voltage
 [ ] Inspect for water intrusion
 [ ] Review transmission log for issues
+[ ] Review battery voltage history
 ```
 
 **Documentation:**
@@ -697,21 +750,27 @@ Post-Hunt:
 - [ ] No stuck PTT conditions
 - [ ] Battery voltage stable
 
-#### Test 2: Battery Life
+#### Test 2: Battery Life & Watchdog System
 **Duration:** 24 hours  
-**Objective:** Validate power management and battery life
+**Objective:** Validate power management, battery life, and dual-threshold watchdog
 
 **Procedure:**
 1. Start with fully charged battery (16.8V)
 2. Configure for normal operations (60s intervals, 5s TX)
 3. Monitor voltage every hour
 4. Record transmission count
+5. Test soft warning at 13.6V threshold
+6. Test hard shutdown at 12.8V threshold (use variable power supply for safety)
 
 **Success Criteria:**
-- [ ] Operates for >18 hours
-- [ ] Low battery warning at correct threshold
-- [ ] Automatic shutdown prevents over-discharge
+- [ ] Operates for >18 hours on single charge
+- [ ] Soft warning triggers at 13.6V (3.4V/cell)
+- [ ] Plays "LOW BATTERY" alert every 5 cycles when below threshold
+- [ ] Hard shutdown triggers at 12.8V (3.2V/cell)
+- [ ] PTT permanently disabled after hard shutdown (INPUT mode)
+- [ ] SOS LED pattern activates on critical battery
 - [ ] Deep sleep mode reduces idle current to <10mA
+- [ ] Hysteresis prevents warning spam (clears at 14.0V)
 
 #### Test 3: Environmental Stress
 **Duration:** 4 hours  
@@ -774,9 +833,10 @@ Post-Hunt:
 - Baofeng UV-5R (already owned)
 - SD card (microSD, 8GB+, FAT32 formatted)
 - 2N2222 transistor (already in use)
-- Resistors: 1kΩ, 47kΩ, 10kΩ
-- Capacitors: 10µF, 0.1µF
-- LiPo battery (already owned)
+- Resistors: 1kΩ (audio filter), 10kΩ (voltage divider R1), 2.2kΩ (voltage divider R2)
+- Capacitors: 10µF (audio coupling), 100nF (voltage divider noise filter)
+- LiPo battery: SOCOKIN 14.8V 5200mAh 4S (already owned)
+- 10kΩ linear potentiometer (audio volume control)
 
 **Phase 4 (Optional - DTMF):**
 - MT8870 DTMF decoder module ($5)
@@ -848,7 +908,8 @@ Post-Hunt:
 - [ ] All MVP criteria met
 - [ ] Battery life 18+ hours
 - [ ] Watchdog timer functional
-- [ ] Low battery warning/shutdown
+- [ ] Battery watchdog with dual thresholds (13.6V soft, 12.8V hard)
+- [ ] Hard shutdown permanently disables PTT (protection verified)
 - [ ] Duty cycle enforcement
 - [ ] Logging operational
 - [ ] Field tested 48+ hours

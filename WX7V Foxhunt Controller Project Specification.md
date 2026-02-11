@@ -26,6 +26,7 @@ The goal is to build a robust, dual-band radio "fox" (hidden transmitter) using 
 | **PTT Control** | Pin 2 | Digital Output \-\> 1k Resistor \-\> 2N2222 Base |
 | **Audio Out** | Pin 12 | PWM/MQS \-\> 1k Resistor \-\> 10uF Cap \-\> 10k Pot \-\> Radio Mic In |
 | **System LED** | Pin 13 | Built-in LED (Heartbeat/TX indicator) |
+| **Battery Monitor** | Pin A9 | Analog Input via Voltage Divider (R1=10kΩ, R2=2.2kΩ) |
 | **Power In** | VIN | 5.0V from Buck Converter B |
 | **Ground** | GND | Common Ground with Radio and Buck Converters |
 
@@ -37,7 +38,8 @@ The goal is to build a robust, dual-band radio "fox" (hidden transmitter) using 
 * **Duty Cycle Management:** Configurable "On-time" and "Off-time" to prevent radio overheating.  
 * **Audio Library Integration:** Utilize the Teensy Audio Library to play .wav files from the onboard SD card (e.g., voice ID or taunts).  
 * **Low Power Mode:** Implementation of Snooze or deep sleep libraries to maximize battery life during long hunts.  
-* **Safety Interlocks:** A "Watchdog" timer to ensure the PTT doesn't get stuck in the HIGH position if the code crashes.
+* **Safety Interlocks:** A "Watchdog" timer to ensure the PTT doesn't get stuck in the HIGH position if the code crashes.  
+* **Battery Watchdog:** Real-time voltage monitoring with soft warning alerts and hard shutdown protection for LiPo cell safety.
 
 ## **5\. Implementation Notes for Cursor AI**
 
@@ -160,9 +162,145 @@ Implement `Snooze` library during idle periods:
 
 **Critical for Production:**
 - Watchdog timer (max PTT timeout: 30 seconds)
-- Battery voltage monitoring (shutdown < 13.2V)
+- Battery voltage monitoring with dual-threshold protection
 - Thermal management (duty cycle limit: 20% max)
 - Emergency PTT release on fault conditions
+
+#### **7.4.1 Battery Watchdog System**
+
+**Purpose:** Protect LiPo battery from over-discharge while providing early warning to field operators
+
+**Hardware Configuration:**
+
+**Voltage Divider Circuit:**
+- R1 = 10kΩ (between battery positive and Pin A9)
+- R2 = 2.2kΩ (between Pin A9 and ground)
+- Divider ratio: R2 / (R1 + R2) = 2.2kΩ / 12.2kΩ = 0.1803
+- Input voltage range: 12.8V - 16.8V (4S LiPo)
+- Output voltage range: 2.31V - 3.03V (safe for Teensy 3.3V ADC)
+
+**Voltage Mapping Table:**
+
+| Battery Voltage | Cell Voltage | Pin A9 Voltage | ADC Reading (10-bit) | Status |
+|----------------|--------------|----------------|---------------------|---------|
+| 16.8V | 4.20V | 3.03V | 936 | Fully Charged |
+| 14.8V | 3.70V | 2.67V | 824 | Nominal |
+| 13.6V | 3.40V | 2.45V | 757 | ⚠️ Soft Warning |
+| 12.8V | 3.20V | 2.31V | 713 | 🛑 Hard Shutdown |
+| 12.0V | 3.00V | 2.16V | 667 | ⚠️ Critical Damage Risk |
+
+**Voltage Divider Formula:**
+\[V_{out} = V_{in} \times \frac{R2}{R1 + R2}\]
+
+**Reverse Calculation (ADC to Battery Voltage):**
+\[V_{battery} = \frac{ADC_{reading} \times 3.3V}{1023} \times \frac{R1 + R2}{R2}\]
+\[V_{battery} = \frac{ADC_{reading} \times 3.3V}{1023} \times 5.545\]
+
+**Implementation Requirements:**
+
+**Soft Warning Threshold (13.6V / 3.4V per cell):**
+- Trigger condition: Battery voltage < 13.6V
+- Action: Play "LOW BATTERY" warning via WAV file or Morse code
+- Frequency: Alert once every 5 transmission cycles (not every cycle)
+- Behavior: Continue normal operation but notify operators
+- LED indication: Change blink pattern to rapid pulse (200ms on/off)
+- Hysteresis: Once triggered, require 14.0V to clear warning
+
+**Hard Shutdown Threshold (12.8V / 3.2V per cell):**
+- Trigger condition: Battery voltage < 12.8V
+- Action: Immediate and permanent PTT disable
+- Behavior: 
+  * Set PTT pin to INPUT (high-impedance) to prevent accidental keying
+  * Disable all audio output
+  * Flash LED in SOS pattern (... --- ...) continuously
+  * Log shutdown event to SD card (if available)
+  * Enter deep sleep mode with periodic wake (every 60 seconds) to continue SOS LED
+- No recovery without power cycle: Prevent repeated discharge attempts
+- Serial log: "CRITICAL: Battery protection triggered at XX.XVdc"
+
+**Monitoring Implementation:**
+```cpp
+const int BATTERY_PIN = A9;
+const float VOLTAGE_DIVIDER_RATIO = 5.545;  // (R1 + R2) / R2 = 12.2k / 2.2k
+const float SOFT_WARNING_THRESHOLD = 13.6;   // 3.4V per cell
+const float HARD_SHUTDOWN_THRESHOLD = 12.8;  // 3.2V per cell
+const float WARNING_CLEAR_THRESHOLD = 14.0;  // Hysteresis
+
+bool batteryWarningActive = false;
+bool batteryShutdownActive = false;
+int warningCounter = 0;
+
+float readBatteryVoltage() {
+  int rawValue = analogRead(BATTERY_PIN);
+  float pinVoltage = (rawValue / 1023.0) * 3.3;
+  float batteryVoltage = pinVoltage * VOLTAGE_DIVIDER_RATIO;
+  return batteryVoltage;
+}
+
+void checkBatteryStatus() {
+  float voltage = readBatteryVoltage();
+  
+  // CRITICAL: Hard shutdown check
+  if (voltage < HARD_SHUTDOWN_THRESHOLD) {
+    triggerBatteryShutdown(voltage);
+    return; // Never transmit again
+  }
+  
+  // Soft warning with hysteresis
+  if (!batteryWarningActive && voltage < SOFT_WARNING_THRESHOLD) {
+    batteryWarningActive = true;
+    warningCounter = 0;
+  } else if (batteryWarningActive && voltage > WARNING_CLEAR_THRESHOLD) {
+    batteryWarningActive = false;
+  }
+  
+  // Play warning every 5 cycles
+  if (batteryWarningActive) {
+    warningCounter++;
+    if (warningCounter >= 5) {
+      playLowBatteryWarning(voltage);
+      warningCounter = 0;
+    }
+  }
+}
+
+void triggerBatteryShutdown(float voltage) {
+  batteryShutdownActive = true;
+  
+  // Immediately disable PTT
+  pinMode(PTT_PIN, INPUT);  // High impedance
+  
+  // Log critical event
+  Serial.print("CRITICAL: Battery shutdown at ");
+  Serial.print(voltage, 2);
+  Serial.println("V");
+  
+  // Log to SD card if available
+  logCriticalEvent(voltage);
+  
+  // Enter emergency mode with SOS LED
+  while (true) {
+    blinkSOS();
+    Snooze.sleep(60000); // Wake every 60s to continue SOS
+  }
+}
+```
+
+**Calibration Procedure:**
+1. Connect fully charged 4S LiPo (16.8V)
+2. Read ADC value from Pin A9
+3. Calculate actual divider ratio: `ratio = 16.8V / pinVoltage`
+4. Update `VOLTAGE_DIVIDER_RATIO` constant with measured value
+5. Verify accuracy at 14.8V (nominal) and 13.6V (warning) using load test
+6. Document actual ratio in code comments
+
+**Safety Notes:**
+- Never bypass hard shutdown threshold
+- Voltage divider resistors should be ±1% tolerance for accuracy
+- Consider 100nF ceramic capacitor across R2 to filter noise
+- ADC readings should be averaged (10 samples) to reduce noise
+- Test with actual battery under load (radio transmitting) for accurate readings
+- Over-discharge below 3.0V/cell (12.0V) can permanently damage LiPo cells
 
 ### **7.5 Advanced Features (Future Development)**
 
@@ -194,7 +332,9 @@ int randomIndex = random(numFiles);
 - Adds entertainment value
 - Can include tactical hints or misdirection
 
-#### **7.5.2 Battery Monitoring**
+#### **7.5.2 Battery Monitoring (Legacy Reference)**
+
+**Note:** This section is superseded by the comprehensive Battery Watchdog System in section 7.4.1. The information below is preserved for historical reference only.
 
 **Purpose:** Real-time voltage monitoring with audio alerts for low battery conditions
 
