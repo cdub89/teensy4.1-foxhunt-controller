@@ -138,6 +138,8 @@ Both reference implementations are functional and documented in the project spec
 3. Center tap to Pin A0
 4. Add 0.1µF capacitor for noise filtering
 
+See [Hardware Reference](Teensy4%20Fox%20Hardware%20Reference.md) for complete power distribution wiring.
+
 **Software Implementation:**
 ```cpp
 const int BATTERY_PIN = A0;
@@ -451,6 +453,8 @@ void processDTMFCommand(String command) {
 - Detects presence of audio signal
 - More universal (works with any radio)
 
+See [Hardware Reference](Teensy4%20Fox%20Hardware%20Reference.md) for Baofeng pigtail pinout and color codes.
+
 **Circuit:**
 ```
 Radio Speaker Out → 1N4148 Diode → 10µF Cap → 10kΩ → GND
@@ -635,6 +639,9 @@ Hardware:
 [ ] Radio set to correct frequency/CTCSS
 [ ] Radio volume adjusted (test with speaker)
 [ ] Enclosure weatherproofed
+[ ] Audio filter components installed (1kΩ resistor + 10µF cap)
+
+See [Hardware Reference](Teensy4%20Fox%20Hardware%20Reference.md) for complete parts checklist and wiring verification.
 
 Software:
 [ ] Callsign configured correctly
@@ -665,6 +672,7 @@ Post-Hunt:
 - Document troubleshooting procedures
 - Include circuit diagrams
 - Provide BOM (Bill of Materials)
+- Reference [Hardware Reference](Teensy4%20Fox%20Hardware%20Reference.md) for wiring details
 
 ---
 

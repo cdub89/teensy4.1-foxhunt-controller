@@ -94,7 +94,7 @@ cd teensy4.1-foxhunt-controller
 
 2. **Audio Circuit:**
    ```
-   Teensy Pin 12 → 10µF capacitor → 10kΩ pot → Radio mic (ring of 2.5mm plug)
+   Teensy Pin 12 → 1kΩ resistor → 10µF capacitor → 10kΩ pot → Radio mic (ring of 2.5mm plug)
    ```
 
 3. **Power:**
@@ -103,7 +103,9 @@ cd teensy4.1-foxhunt-controller
                    → Buck B (5.0V) → Teensy VIN
    ```
 
-See detailed wiring diagrams in the [project specification](Teensy%20Foxhunt%20Controller%20Project%20Specification.md).
+See complete wiring diagrams and connection details in:
+- **[Hardware Reference](Teensy4%20Fox%20Hardware%20Reference.md)** - Wiring summary, pigtail pinout, audio filtering
+- **[Project Specification](Teensy%20Foxhunt%20Controller%20Project%20Specification.md)** - Full technical specifications
 
 ### 3. Prepare SD Card
 
@@ -167,6 +169,7 @@ Upload to Teensy via Arduino IDE.
 ## 📚 Documentation
 
 - **[Project Specification](Teensy%20Foxhunt%20Controller%20Project%20Specification.md)** - Complete hardware specs, features, and technical details
+- **[Hardware Reference](Teensy4%20Fox%20Hardware%20Reference.md)** - Wiring summary, pigtail pinout, audio filtering, parts checklist
 - **[Implementation Plan](IMPLEMENTATION_PLAN.md)** - Phased development roadmap with time estimates
 - **[Morse Code Controller](Morse%20Code%20Controller.mdc)** - Simple CW transmission reference code
 - **[Audio Controller](Audio%20Controller%20Code.mdc)** - WAV file playback reference code

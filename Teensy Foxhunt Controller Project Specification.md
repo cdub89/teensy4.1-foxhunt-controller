@@ -24,10 +24,12 @@ The goal is to build a robust, dual-band radio "fox" (hidden transmitter) using 
 | Component | Teensy 4.1 Pin | Notes |
 | :---- | :---- | :---- |
 | **PTT Control** | Pin 2 | Digital Output \-\> 1k Resistor \-\> 2N2222 Base |
-| **Audio Out** | Pin 12 | PWM/MQS \-\> 10uF Cap \-\> 10k Pot \-\> Radio Mic In |
+| **Audio Out** | Pin 12 | PWM/MQS \-\> 1k Resistor \-\> 10uF Cap \-\> 10k Pot \-\> Radio Mic In |
 | **System LED** | Pin 13 | Built-in LED (Heartbeat/TX indicator) |
 | **Power In** | VIN | 5.0V from Buck Converter B |
 | **Ground** | GND | Common Ground with Radio and Buck Converters |
+
+**See Also:** [Hardware Reference](Teensy4%20Fox%20Hardware%20Reference.md) for complete wiring summary, pigtail color codes, and audio filtering details.
 
 ## **4\. Required Features for Development**
 
@@ -40,6 +42,8 @@ The goal is to build a robust, dual-band radio "fox" (hidden transmitter) using 
 ## **5\. Implementation Notes for Cursor AI**
 
 When generating code, prioritize **non-blocking** architecture using millis() rather than delay(). The Baofeng requires a **1000ms "Pre-roll"** after PTT is keyed before audio begins to ensure the squelch on receiving radios has opened.
+
+**Important:** The audio circuit includes a **1kΩ resistor** before the 10µF capacitor to create a low-pass filter that smooths MQS output and prevents radio distortion. See [Hardware Reference](Teensy4%20Fox%20Hardware%20Reference.md) for audio filtering details and optional isolation transformer information.
 
 ## **6\. Reference Code Implementations**
 
