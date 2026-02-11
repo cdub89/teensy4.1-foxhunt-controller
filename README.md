@@ -12,23 +12,25 @@ Amateur radio foxhunting (also called radio direction finding or T-hunting) is a
 
 ## ✨ Features
 
-### Current Implementation (Phase 1)
+### Current Implementation (v1.0.0 - PRODUCTION READY)
+- ✅ **Non-Blocking Architecture** - State machine design for concurrent operations
 - ✅ **Morse Code CW Transmission** - Automated callsign identification with configurable WPM
 - ✅ **WAV File Playback** - Voice announcements and taunts from SD card
 - ✅ **Baofeng UV-5R Integration** - PTT control with proper timing (1000ms pre-roll)
-- ✅ **Configurable Intervals** - Adjustable transmission timing
-- ✅ **Status LED Indicators** - Visual feedback during operation
+- ✅ **Dual-Threshold Battery Watchdog** - Soft warning (13.6V) + hard shutdown (12.8V)
+- ✅ **Watchdog Timer** - 30-second timeout protects against stuck PTT
+- ✅ **Safety Interlocks** - Multiple fail-safe mechanisms
+- ✅ **Status LED Indicators** - Visual feedback (heartbeat, warning, SOS)
+- ✅ **Automatic Mode Switching** - Alternates between Morse and audio
 
-### Planned Features (In Development)
-- 🔄 **Non-Blocking Architecture** - State machine design for concurrent operations
-- 🔋 **Battery Monitoring** - Real-time voltage tracking with low-battery warnings
-- ⚡ **Watchdog Timer** - Safety protection against stuck PTT
-- 🎲 **Randomized Content** - Random audio file selection for variety
-- 📡 **DTMF Remote Control** - Command the fox via radio tones
-- 🔇 **VOX Activation** - Silent operation until "called" by hunters
-- 💤 **Deep Sleep Mode** - Extended battery life between transmissions
-- 📊 **Duty Cycle Management** - Prevent radio overheating
-- 📝 **SD Card Logging** - Complete event logging and diagnostics
+### Planned Features (Future Development)
+- 🔄 **Deep Sleep Mode** - Extended battery life between transmissions (Phase 3)
+- 🎲 **Randomized Audio Selection** - Random taunt file selection (Phase 4)
+- 📡 **DTMF Remote Control** - Command the fox via radio tones (Phase 4)
+- 🔇 **VOX Activation** - Silent operation until "called" by hunters (Phase 4)
+- 📊 **Duty Cycle Management** - Prevent radio overheating (Phase 3)
+- 📝 **SD Card Logging** - Complete event logging and diagnostics (Phase 5)
+- ⚙️ **Configuration System** - SD card based config file (Phase 5)
 
 See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the complete development roadmap.
 
@@ -43,15 +45,14 @@ See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the complete developmen
 - **MicroSD card** (8GB+, FAT32 formatted)
 
 ### Supporting Components
-- Resistors: 1kΩ, 10kΩ, 47kΩ
-- Capacitors: 10µF, 0.1µF
+- Resistors: 1kΩ (audio filter), 10kΩ (voltage divider R1), 2.2kΩ (voltage divider R2)
+- Capacitors: 10µF (audio coupling), 100nF (voltage divider filter)
 - 5A inline fuse (XT60 connector)
-- 10kΩ potentiometer (audio level control)
+- 10kΩ linear potentiometer (audio level control)
 
-### Optional Components
-- **MT8870 DTMF decoder** (for remote control)
-- **DS3231 RTC module** (for accurate timestamps)
-- **Voltage divider** (for battery monitoring)
+### Optional Components (Future)
+- **MT8870 DTMF decoder** (for remote control - Phase 4)
+- **DS3231 RTC module** (for accurate timestamps - Phase 5)
 
 Complete Bill of Materials: See [WX7V Foxhunt Controller Project Specification.md](WX7V%20Foxhunt%20Controller%20Project%20Specification.md)
 
@@ -60,9 +61,9 @@ Complete Bill of Materials: See [WX7V Foxhunt Controller Project Specification.m
 | Function | Teensy Pin | Notes |
 |----------|-----------|-------|
 | **PTT Control** | Pin 2 | Digital Output → 1kΩ resistor → 2N2222 base |
-| **Audio Out** | Pin 12 | PWM/MQS → 10µF cap → 10kΩ pot → Radio mic |
-| **Status LED** | Pin 13 | Built-in LED (heartbeat/TX indicator) |
-| **Battery Monitor** | Pin A0 | Via voltage divider (47kΩ + 10kΩ) |
+| **Audio Out** | Pin 12 | MQS → 1kΩ → 10µF cap → 10kΩ pot → Radio mic |
+| **Status LED** | Pin 13 | Built-in LED (heartbeat/TX/SOS indicator) |
+| **Battery Monitor** | Pin A9 | Via voltage divider (10kΩ + 2.2kΩ) |
 | **Power In** | VIN | 5.0V from buck converter |
 | **Ground** | GND | Common ground with radio and converters |
 
@@ -70,17 +71,18 @@ Complete Bill of Materials: See [WX7V Foxhunt Controller Project Specification.m
 
 ### 1. Software Setup
 
-```bash
-# Clone the repository
-git clone https://github.com/wx7v/teensy4.1-foxhunt-controller.git
-cd teensy4.1-foxhunt-controller
+**Open** `FoxhuntController.ino` in Arduino IDE with Teensyduino installed.
 
-# Install Arduino IDE with Teensyduino
-# Download from: https://www.pjrc.com/teensy/td_download.html
+**Required libraries** (install via Arduino Library Manager or Teensyduino):
+- **Audio Library** (included with Teensyduino)
+- **SD Library** (Arduino core)
+- **Snooze Library** (Teensy low power)
+- **Watchdog_t4** (Teensy 4.x watchdog timer)
 
-# Required libraries (install via Arduino Library Manager):
-# - Audio Library (included with Teensyduino)
-# - SD Library (Arduino core)
+**Configure your callsign:**
+```cpp
+// Edit line 35 in FoxhuntController.ino
+const char* CALLSIGN = "WX7V FOX";  // Change to YOUR callsign
 ```
 
 ### 2. Hardware Assembly
@@ -92,12 +94,20 @@ cd teensy4.1-foxhunt-controller
    2N2222 emitter → Ground
    ```
 
-2. **Audio Circuit:**
+2. **Audio Circuit:** ⚠️ **1kΩ resistor is REQUIRED for clean audio**
    ```
-   Teensy Pin 12 → 1kΩ resistor → 10µF capacitor → 10kΩ pot → Radio mic (ring of 2.5mm plug)
+   Teensy Pin 12 → 1kΩ resistor → 10µF capacitor (+) → 10kΩ pot (left pin)
+   10kΩ pot (center pin) → Radio mic (ring of 2.5mm plug)
+   10kΩ pot (right pin) → Ground
    ```
 
-3. **Power:**
+3. **Battery Monitor Circuit:**
+   ```
+   Battery (+) → 10kΩ (R1) → Pin A9 → 2.2kΩ (R2) → Ground
+                            → 100nF cap → Ground (noise filter)
+   ```
+
+4. **Power:**
    ```
    Battery (14.8V) → Buck A (8.0V) → Radio battery eliminator
                    → Buck B (5.0V) → Teensy VIN
@@ -128,36 +138,43 @@ SD_CARD/
 
 ### 4. Configure & Upload
 
-#### For Morse Code Only:
+**Open** `FoxhuntController.ino` and configure:
+
 ```cpp
-// Edit Morse Code Controller.mdc
-const char* callsign = "WX7V FOX";  // Change to your callsign
-const int toneFreq = 800;            // Audio pitch in Hz
-const int dotLen = 100;              // 100ms = ~12 WPM
-const long transmitInterval = 60000; // 60 seconds between IDs
+// Line 35: Change to YOUR callsign
+const char* CALLSIGN = "WX7V FOX";
+
+// Line 41: Adjust Morse speed if desired
+const int MORSE_WPM = 12;  // 12 words per minute
+
+// Line 46: Adjust transmission interval
+const long TX_INTERVAL = 60000;  // 60 seconds
+
+// Lines 56-57: Battery thresholds (verify with your setup)
+const float SOFT_WARNING_THRESHOLD = 13.6;   // Low battery warning
+const float HARD_SHUTDOWN_THRESHOLD = 12.8;  // Emergency shutdown
 ```
 
-#### For Audio Playback:
-```cpp
-// Edit Audio Controller Code.mdc
-const long transmitInterval = 60000; // 60 seconds between transmissions
+**Select Board:** Tools → Board → Teensy 4.1  
+**Upload** to Teensy via Arduino IDE.
 
-// In loop():
-playFoxFile("FOXID.WAV"); // Change to your file name
-```
-
-Upload to Teensy via Arduino IDE.
+**See:** [FoxhuntController_README.md](FoxhuntController_README.md) for detailed instructions.
 
 ### 5. Test Before Deployment
 
 **Pre-flight checklist:**
 - [ ] Battery fully charged (16.8V)
-- [ ] SD card has audio files
-- [ ] Radio set to correct frequency
+- [ ] SD card has `FOXID.WAV` (and optionally `LOWBATT.WAV`)
+- [ ] Callsign configured in code
+- [ ] Audio filter installed (1kΩ + 10µF + 10kΩ pot)
+- [ ] Battery voltage divider installed (10kΩ + 2.2kΩ + 100nF)
+- [ ] Battery voltage reading verified with multimeter
+- [ ] Radio set to correct frequency and CTCSS
 - [ ] Antenna connected
 - [ ] Volume adjusted (test with speaker)
 - [ ] PTT timing verified (1s pre-roll)
 - [ ] Audio levels not distorted
+- [ ] Watchdog timer tested (optional)
 
 **Test procedure:**
 1. Power on with monitoring radio nearby
@@ -171,6 +188,8 @@ Upload to Teensy via Arduino IDE.
 - **[Project Specification](WX7V%20Foxhunt%20Controller%20Project%20Specification.md)** - Complete hardware specs, features, and technical details
 - **[Hardware Reference](Teensy4%20Fox%20Hardware%20Reference.md)** - Wiring summary, pigtail pinout, audio filtering, parts checklist
 - **[Implementation Plan](IMPLEMENTATION_PLAN.md)** - Phased development roadmap with time estimates
+- **[FoxhuntController.ino](FoxhuntController.ino)** - Production controller code (v1.0.0)
+- **[FoxhuntController README](FoxhuntController_README.md)** - Quick start guide for the controller
 - **[Morse Code Controller](Morse%20Code%20Controller.mdc)** - Simple CW transmission reference code
 - **[Audio Controller](Audio%20Controller%20Code.mdc)** - WAV file playback reference code
 - **[Cursor Rules](.cursorrules)** - AI-assisted development guidelines
@@ -179,13 +198,16 @@ Upload to Teensy via Arduino IDE.
 
 This project implements multiple safety mechanisms:
 
-- **PTT Timeout Protection** - Prevents stuck transmit conditions
-- **Duty Cycle Limiting** - Prevents radio overheating (20% max)
-- **Battery Monitoring** - Low-voltage shutdown protects LiPo cells
-- **Watchdog Timer** - Automatic recovery from crashes
-- **Emergency PTT Release** - Fail-safe mechanisms
+- **Watchdog Timer** - 30-second timeout with automatic PTT release
+- **Dual-Threshold Battery Watchdog:**
+  - **Soft Warning (13.6V)** - Plays "LOW BATTERY" every 5 cycles
+  - **Hard Shutdown (12.8V)** - Permanently disables PTT, enters SOS mode
+- **Transmission Timeout** - 30-second maximum per transmission
+- **Hysteresis Protection** - Prevents battery warning spam
+- **Emergency PTT Release** - Multiple fail-safe mechanisms
+- **Non-blocking Architecture** - Responsive to all safety checks
 
-⚠️ **Important:** A stuck PTT can drain batteries, overheat equipment, and cause harmful interference. Always test safety features before field deployment.
+⚠️ **Important:** A stuck PTT can drain batteries, overheat equipment, and cause harmful interference. The battery hard shutdown at 12.8V prevents LiPo damage and requires power cycle to reset.
 
 ## 📊 Performance Characteristics
 
@@ -203,14 +225,18 @@ This project implements multiple safety mechanisms:
 ## 🛠️ Development
 
 ### Current Status
-**Phase 1: COMPLETE** ✅
-- Basic Morse and audio implementations functional
-- Hardware tested and validated
-- Documentation complete
+**Version 1.0.0 - PRODUCTION READY** ✅
+- Non-blocking state machine architecture ✅
+- Morse code and audio transmission ✅
+- Dual-threshold battery watchdog ✅
+- Watchdog timer safety ✅
+- Hardware tested and validated ✅
+- Documentation complete ✅
 
-**Phase 2: IN PROGRESS** 🔄
-- Non-blocking architecture refactor
-- State machine design
+**Next Development (Phase 3):**
+- Deep sleep power management
+- Duty cycle tracking and enforcement
+- Enhanced logging to SD card
 
 ### Contributing
 
