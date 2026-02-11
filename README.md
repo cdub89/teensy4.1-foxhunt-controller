@@ -1,4 +1,4 @@
-# Teensy 4.1 Foxhunt Controller
+# WX7V Foxhunt Controller
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Amateur Radio](https://img.shields.io/badge/Amateur%20Radio-FCC%20Part%2097-blue.svg)](https://www.fcc.gov/wireless/bureau-divisions/mobility-division/amateur-radio-service)
@@ -53,7 +53,7 @@ See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the complete developmen
 - **DS3231 RTC module** (for accurate timestamps)
 - **Voltage divider** (for battery monitoring)
 
-Complete Bill of Materials: See [Teensy Foxhunt Controller Project Specification.md](Teensy%20Foxhunt%20Controller%20Project%20Specification.md)
+Complete Bill of Materials: See [WX7V Foxhunt Controller Project Specification.md](WX7V%20Foxhunt%20Controller%20Project%20Specification.md)
 
 ## 📋 Pin Configuration
 
@@ -105,7 +105,7 @@ cd teensy4.1-foxhunt-controller
 
 See complete wiring diagrams and connection details in:
 - **[Hardware Reference](Teensy4%20Fox%20Hardware%20Reference.md)** - Wiring summary, pigtail pinout, audio filtering
-- **[Project Specification](Teensy%20Foxhunt%20Controller%20Project%20Specification.md)** - Full technical specifications
+- **[Project Specification](WX7V%20Foxhunt%20Controller%20Project%20Specification.md)** - Full technical specifications
 
 ### 3. Prepare SD Card
 
@@ -168,7 +168,7 @@ Upload to Teensy via Arduino IDE.
 
 ## 📚 Documentation
 
-- **[Project Specification](Teensy%20Foxhunt%20Controller%20Project%20Specification.md)** - Complete hardware specs, features, and technical details
+- **[Project Specification](WX7V%20Foxhunt%20Controller%20Project%20Specification.md)** - Complete hardware specs, features, and technical details
 - **[Hardware Reference](Teensy4%20Fox%20Hardware%20Reference.md)** - Wiring summary, pigtail pinout, audio filtering, parts checklist
 - **[Implementation Plan](IMPLEMENTATION_PLAN.md)** - Phased development roadmap with time estimates
 - **[Morse Code Controller](Morse%20Code%20Controller.mdc)** - Simple CW transmission reference code

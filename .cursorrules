@@ -1,10 +1,10 @@
-# Teensy 4.1 Foxhunt Controller Project Rules
+# WX7V Foxhunt Controller Project Rules
 
 ## Project Context
 This project implements a dual-band radio "fox" (hidden transmitter) using a Teensy 4.1 microcontroller and Baofeng UV-5R radio for amateur radio foxhunt events.
 
 ## CRITICAL: Always Read Project Specification First
-- **ALWAYS** read `@Teensy Foxhunt Controller Project Specification.md` before writing any code
+- **ALWAYS** read `@WX7V Foxhunt Controller Project Specification.md` before writing any code
 - This file contains hardware constraints, pinout mappings, and feature requirements
 - Never assume pin assignments or voltage levels - always verify against the specification
 
@@ -18,7 +18,7 @@ This project implements a dual-band radio "fox" (hidden transmitter) using a Tee
 - If documentation is needed, update existing files or ask first
 
 ### After Major Features or Milestones:
-1. **UPDATE** `@Teensy Foxhunt Controller Project Specification.md` with:
+1. **UPDATE** `@WX7V Foxhunt Controller Project Specification.md` with:
    - New features implemented
    - Configuration changes
    - Pin assignment modifications

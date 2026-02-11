@@ -4,7 +4,7 @@ Save this as fox\_controller\_project.md in your project root.
 
 # ---
 
-**Project: Teensy 4.1 Advanced Foxhunt Controller**
+**Project: WX7V Foxhunt Controller**
 
 ## **1\. Project Overview**
 

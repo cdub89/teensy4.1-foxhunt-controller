@@ -1,7 +1,7 @@
-# Teensy 4.1 Foxhunt Controller - Implementation Plan
+# WX7V Foxhunt Controller - Implementation Plan
 
 ## Document Purpose
-This document provides a phased approach to developing the Teensy 4.1 Foxhunt Controller, from basic proof-of-concept to advanced production-ready features.
+This document provides a phased approach to developing the WX7V Foxhunt Controller, from basic proof-of-concept to advanced production-ready features.
 
 ---
 
