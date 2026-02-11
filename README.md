@@ -238,7 +238,8 @@ Please read the [Implementation Plan](IMPLEMENTATION_PLAN.md) before contributin
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 **Copyright © 2026 Chris L White, WX7V**  
-*Written with assistance by Claude Sonnet 4.5*
+*Hardware Reference and Project Design created with assisted by Gemini 3*
+*Code Written with assistance by Claude Sonnet 4.5*
 
 ### Radio Operation Notice
 
@@ -255,7 +256,8 @@ This software is designed for **amateur radio operations only**. Users are respo
 
 - **PJRC** - For the excellent Teensy platform and Audio Library
 - **Amateur Radio Community** - For foxhunting traditions and techniques
-- **OpenAI** - For Claude Sonnet 4.5 AI assistance
+- **Google DeepMind** - For Gemini 3 AI assistance
+- **Anthropic** - For Claude Sonnet 4.5 AI assistance
 
 ## 📞 Contact
 
