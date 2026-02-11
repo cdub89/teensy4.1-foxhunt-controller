@@ -32,4 +32,36 @@ Before you head out for the hunt, make sure these are secured inside your Ammo C
 * [ ] **10uF Capacitor & 10k Pot:** Inline with your audio wire to prevent "clipping" and radio damage.
 * [ ] **2N2222 Transistor & 1k Resistor:** Mounted to a board to keep the PTT signal clean.
 
-Good luck with your build and the fox hunt! If you're looking for more ways to customize the setup, I can help you find **external antenna mounts** or **bulkhead connectors** to run your antenna through the side of the ammo can. Would you like me to do that?
+### 4. Low Pass Audio Filter for MQS
+
+To get **acceptable quality audio** from the Teensy 4.1's MQS (Medium Quality Sound) pins to your Baofeng, the "bare minimum" wiring works, but it can sound "tinny" or distorted because MQS is essentially a high-frequency PWM signal.
+
+To make it sound professional and prevent the radio from "clipping," I recommend adding a simple **Low-Pass Filter**. This smooths out the digital pulses into a clean analog wave.
+
+#### 4.1. The Necessary "Filter" Components
+
+You likely have the capacitor and pot on your list, but adding one small resistor makes a world of difference for MQS.
+
+* **10uF Electrolytic Capacitor**: This blocks "DC Bias" from the Teensy, ensuring you only send the audio signal to the radio.
+* **10k Ohm Linear Potentiometer**: This acts as your **Master Volume**. Baofeng mic inputs are very sensitive; without this, the audio will be extremely loud and distorted.
+* **1k Ohm Resistor**: Adding this between Pin 12 and the capacitor creates a basic **Low-Pass Filter** that removes the digital "hiss" characteristic of MQS.
+
+#### 4.2. The "Acceptable Quality" Circuit
+
+For a clean signal, wire them in this specific order:
+
+1. **Teensy Pin 12** → **1k Resistor**.
+2. **1k Resistor** → **10uF Capacitor** (Positive leg).
+3. **10uF Capacitor** (Negative leg) → **Left Pin of 10k Potentiometer**.
+4. **Center Pin of 10k Potentiometer** → **Radio Mic Input (Red Wire)**.
+5. **Right Pin of 10k Potentiometer** → **Common Ground**.
+
+#### 4.3. Optional: Audio Isolation (The "Pro" Fix)
+
+If you hear a "hum" or "buzz" whenever the radio transmits (common with high-power LiPos), it’s caused by a ground loop. An isolation transformer is the magic fix for this.
+
+* **600:600 Ohm Audio Isolation Transformer**: If you find the audio has a constant background buzz, put this small transformer between your circuit and the radio. It physically separates the Teensy's electrical ground from the Radio's electrical ground.
+
+## Summary Recommendation
+
+If you want to keep it simple for next weekend: **The Resistor, Capacitor, and Potentiometer** are all you need for "acceptable" audio. The **1k Resistor** is the secret ingredient that turns MQS from "harsh digital noise" into "smooth radio audio."
