@@ -3,10 +3,18 @@
 ## Project Context
 This project implements a dual-band radio "fox" (hidden transmitter) using a Teensy 4.1 microcontroller and Baofeng UV-5R radio for amateur radio foxhunt events.
 
-## CRITICAL: Always Read Project Specification First
-- **ALWAYS** read `@WX7V Foxhunt Controller Project Specification.md` before writing any code
-- This file contains hardware constraints, pinout mappings, and feature requirements
-- Never assume pin assignments or voltage levels - always verify against the specification
+## Development Environment
+- **IDE:** Arduino IDE 2.3.7
+- **Board:** Teensy 4.1 (with Teensyduino add-on)
+- **Compilation:** All code must compile successfully in Arduino IDE 2.3.7
+- **Upload:** Use Arduino IDE's upload function with Teensy Loader integration
+- **Testing:** Serial Monitor at 115200 baud for debugging and output verification
+
+## CRITICAL: Always Read Reference Documentation First
+- **ALWAYS** read `@Hardware_Reference.md` and `@Software_Reference.md` before writing any code
+- **Hardware_Reference.md** contains hardware constraints, pinout mappings, wiring diagrams, voltage levels, and component specifications
+- **Software_Reference.md** contains programming requirements, architecture patterns, safety interlocks, and code examples
+- Never assume pin assignments, voltage levels, or timing requirements - always verify against these references
 
 ## Documentation Requirements
 
@@ -18,30 +26,25 @@ This project implements a dual-band radio "fox" (hidden transmitter) using a Tee
 - If documentation is needed, update existing files or ask first
 
 ### After Major Features or Milestones:
-1. **UPDATE** `@WX7V Foxhunt Controller Project Specification.md` with:
-   - New features implemented
-   - Configuration changes
+1. **UPDATE** `@Hardware_Reference.md` when hardware changes:
    - Pin assignment modifications
-   - Power consumption estimates
+   - Component value changes
+   - Power consumption measurements
+   - Wiring or circuit updates
    - Performance characteristics
 
-2. **DOCUMENT** system architecture changes:
-   - State machine diagrams
-   - Timing requirements
-   - Audio processing pipeline
-   - Safety interlock mechanisms
+2. **UPDATE** `@Software_Reference.md` when code architecture changes:
+   - New features implemented
+   - State machine modifications
+   - Timing requirement changes
+   - Safety interlock updates
+   - Configuration parameter changes
 
 3. **TRACK** all code migrations/refactoring:
    - Document breaking changes
    - List deprecated functions
    - Note library version updates
-   - Record configuration parameter changes
-
-## Reference Code
-- Sample code documented in `@Teensy4.1 Controller Code.mdc`
-- Uses **Pin 2** for PTT control (via 2N2222 transistor)
-- Uses **Pin 12** for audio tone generation
-- Uses **Pin 13** for status LED (built-in)
+   - Update code examples in Software_Reference.md
 
 ## Coding Standards
 
@@ -52,53 +55,11 @@ This project implements a dual-band radio "fox" (hidden transmitter) using a Tee
    - Keep `loop()` function responsive (< 10ms execution time)
    - Allow concurrent task handling (LED blink, sensor checks, etc.)
 
-2. **Baofeng UV-5R Specific Timing:**
-   - **1000ms PTT pre-roll** required before audio transmission
-   - Account for squelch opening time on receiving radios
-   - Minimum 500ms tail after audio ends before PTT release
-
-3. **Safety First:**
+2. **Safety First:**
    - Implement watchdog timer to prevent stuck PTT
    - Duty cycle management to prevent radio overheating
    - Voltage monitoring for battery protection
    - Graceful degradation on errors
-
-### Pin Usage (NEVER deviate without updating spec):
-```cpp
-const int PTT_PIN = 2;      // Digital Output -> 1k Resistor -> 2N2222 Base
-const int AUDIO_PIN = 12;   // PWM/MQS -> 10uF Cap -> 10k Pot -> Radio Mic
-const int LED_PIN = 13;     // Built-in LED (status indicator)
-```
-
-### Power Constraints:
-- Input: 14.8V 4S LiPo (SOCOKIN 5200mAh)
-- Buck A: 8.0V for radio (via battery eliminator)
-- Buck B: 5.0V for Teensy VIN
-- 5A inline fuse on XT60 main lead
-- Consider low-power modes for extended operation
-
-### Required Features:
-1. **Morse Code Engine:**
-   - Configurable WPM (Words Per Minute)
-   - Standard ITU Morse timing
-   - Clean tone generation (minimize harmonics)
-
-2. **Audio Integration:**
-   - Teensy Audio Library for .wav playback
-   - SD card support for voice files
-   - Proper audio mixing/multiplexing
-
-3. **Duty Cycle Management:**
-   - Configurable ON/OFF times
-   - Temperature monitoring (if available)
-   - Automatic shutdown on overrun
-
-4. **Power Management:**
-   - Snooze/deep sleep during OFF periods
-   - Battery voltage monitoring
-   - Low-battery warning/shutdown
-
-## Code Style
 
 ### Naming Conventions:
 ```cpp
@@ -132,36 +93,27 @@ if (isPttActive && (millis() - pttStartTime > MAX_PTT_TIME)) {
 }
 ```
 
-## Testing Checklist
-Before marking any feature complete:
-- [ ] Non-blocking behavior verified (no delay() calls in critical paths)
-- [ ] PTT timing verified (1000ms pre-roll, proper tail)
-- [ ] Watchdog timer tested (intentional hang recovery)
-- [ ] Duty cycle limits enforced
-- [ ] Low-battery condition handled
-- [ ] Audio quality checked (clean tones, no distortion)
-- [ ] Power consumption measured
-
-## Library Usage
-Prefer these libraries for Teensy 4.1:
-- **Audio Library** (native Teensy): For audio playback and synthesis
-- **Snooze Library**: For power management
-- **TimeLib**: For RTC functions if needed
-- **SD Library**: For file access
-- **Watchdog_t4**: For safety interlocks
+## Technical References
+For all hardware and software specifications, see:
+- **Arduino IDE configuration:** See `Hardware_Reference.md` → "Arduino IDE Configuration"
+- **Testing requirements:** See `Software_Reference.md` → "Testing Checklist"  
+- **Required libraries:** See `Software_Reference.md` → "Required Libraries"
+- **Pin assignments:** See `Hardware_Reference.md` → "Pinout & Wiring Map"
+- **Coding examples:** See `Software_Reference.md` for complete code patterns
 
 ## Version Control
 - Commit working features atomically
 - Tag releases with semantic versioning
-- Update specification document BEFORE committing major features
+- Update Hardware_Reference.md or Software_Reference.md BEFORE committing major features
 - Include hardware revision in commit messages if relevant
 
 ## When In Doubt
-1. Check the project specification first
-2. Review sample code for patterns
-3. Prioritize safety and non-blocking design
-4. Test with oscilloscope/logic analyzer for timing verification
-5. Document assumptions and ask for clarification
+1. Check Hardware_Reference.md for physical connections and voltage levels
+2. Check Software_Reference.md for code architecture and safety patterns
+3. Review reference implementations (Morse Code Controller.mdc, Audio Controller Code.mdc)
+4. Prioritize safety and non-blocking design
+5. Test with oscilloscope/logic analyzer for timing verification
+6. Document assumptions and ask for clarification
 
 ---
 

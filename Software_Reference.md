@@ -766,6 +766,35 @@ const int DTMF_STD = 7;  // Valid tone detected
 
 ---
 
+## Required Features
+
+### 1. Morse Code Engine
+- Configurable WPM (Words Per Minute)
+- Standard ITU Morse timing
+- Clean tone generation (800Hz default, minimize harmonics)
+- Non-blocking implementation using state machine
+
+### 2. Audio Integration
+- Teensy Audio Library for .wav playback
+- SD card support for voice files (FAT32, 16-bit PCM WAV)
+- Proper audio filtering (1kΩ resistor + 10µF cap + 10kΩ pot)
+- Graceful degradation if SD card missing/files unavailable
+
+### 3. Battery Watchdog System
+- Dual-threshold protection (13.6V soft warning, 12.8V hard shutdown)
+- Voltage divider monitoring on Pin A9 (10kΩ + 2.0kΩ)
+- Hysteresis to prevent warning spam
+- Permanent PTT disable on hard shutdown
+- SOS LED pattern when in shutdown mode
+
+### 4. Safety Interlocks
+- Watchdog timer (30s timeout) to prevent stuck PTT
+- Duty cycle management to prevent radio overheating
+- Emergency PTT release mechanisms
+- Non-blocking architecture for responsive monitoring
+
+---
+
 ## Testing Checklist
 
 Before marking any feature complete:

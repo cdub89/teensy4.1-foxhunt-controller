@@ -286,6 +286,34 @@ Before field deployment, verify all critical systems:
 
 ---
 
+## Arduino IDE Configuration
+
+### Tools Menu Settings:
+- **Board:** "Teensy 4.1"
+- **USB Type:** "Serial"
+- **CPU Speed:** "24 MHz" (for battery life optimization)
+- **Optimize:** "Smallest Code" or "Faster" (depending on requirements)
+- **Port:** Select from "Teensy Ports" section (NOT "Serial Ports")
+
+### Compilation Notes:
+- All `.ino` files must be in their own folder with matching name
+- Teensy-specific libraries are available through Teensyduino
+- Use "Verify" button to check compilation before uploading
+- Use "Upload" button to compile and flash to Teensy 4.1
+
+### Memory Usage Reporting:
+After compilation, Arduino IDE displays Teensy 4.1 memory usage:
+```
+FLASH: code:XXXXX, data:XXXX, headers:8320   free for files:8101892
+ RAM1: variables:XXXX, code:XXXXX, padding:XXXXX   free for local variables:486688
+ RAM2: variables:XXXXX  free for malloc/new:511872
+```
+- **FLASH:** Total ~8MB available for code and files (SD card storage uses remaining space)
+- **RAM1:** 512KB total (DTCM + OCRAM) for variables and code
+- **RAM2:** 524KB total (OCRAM2) for dynamic memory allocation
+
+---
+
 ## Troubleshooting Guide
 
 ### Teensy Reboots During Transmission
