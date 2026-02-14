@@ -149,7 +149,7 @@ unsigned long morseLastChange = 0;              // Last state change time
 
 // SD Card logging
 File logFile;
-bool loggingEnabled = false;
+bool loggingEnabled = true;
 
 // ============================================================================
 // DUAL OUTPUT FUNCTIONS (Serial + SD Card)
@@ -855,22 +855,13 @@ time_t getTeensy3Time() {
 }
 
 // ============================================================================
-// PRINT TIMESTAMP (Date and Time) - For Serial Monitor
+// PRINT TIMESTAMP (Date and Time)
 // ============================================================================
 void printTimestamp() {
   char timestamp[30];
   sprintf(timestamp, "[%04d-%02d-%02d %02d:%02d:%02d]", 
           year(), month(), day(), hour(), minute(), second());
-  Serial.print(timestamp);
-  
-  // Also write to SD card if enabled
-  if (loggingEnabled) {
-    logFile = SD.open("BAT.LOG", FILE_WRITE);
-    if (logFile) {
-      logFile.print(timestamp);
-      logFile.close();
-    }
-  }
+  logPrint(timestamp);  // Use logPrint for dual output
 }
 
 // ============================================================================

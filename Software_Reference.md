@@ -1047,6 +1047,275 @@ void logEvent(const char* event) {
 
 ---
 
+## SD Card Logging Architecture
+
+### Core Principle: Mirror Serial Output
+
+**CRITICAL RULE:** SD card log files MUST be an exact mirror of Serial Monitor output.
+
+- ✅ **DO:** Use dual-output wrapper functions for ALL output
+- ❌ **DON'T:** Write directly to Serial or SD card in application code
+- ❌ **DON'T:** Have separate logging logic scattered throughout code
+
+**Why?** This pattern ensures:
+1. Consistency - Serial Monitor and log files match exactly
+2. Simplicity - Single source of truth for all output
+3. Maintainability - Logging logic centralized in one place
+4. Reliability - Easy to verify what's being logged
+
+### Dual-Output Pattern (Required for All Scripts)
+
+**Step 1: SD Card Initialization**
+
+```cpp
+#include <SD.h>
+#include <TimeLib.h>
+
+File logFile;
+bool loggingEnabled = false;
+
+void setup() {
+  Serial.begin(115200);
+  
+  // Initialize RTC
+  setSyncProvider(getTeensy3Time);
+  
+  // Initialize SD card
+  if (SD.begin(BUILTIN_SDCARD)) {
+    loggingEnabled = true;
+    Serial.println("SD card initialized - logging enabled");
+    
+    // Write startup message to log
+    logFile = SD.open("FOX.LOG", FILE_WRITE);
+    if (logFile) {
+      logFile.println();
+      logFile.println("========================================");
+      logFile.print("SYSTEM STARTUP: ");
+      printDateTimeToFile(logFile);
+      logFile.println();
+      logFile.println("========================================");
+      logFile.close();
+    }
+  } else {
+    loggingEnabled = false;
+    Serial.println("SD card failed - continuing without logging");
+  }
+}
+```
+
+**Step 2: Create Core Dual-Output Functions**
+
+These are the ONLY functions that write to Serial or SD card:
+
+```cpp
+// ============================================================================
+// DUAL-OUTPUT LOGGING FUNCTIONS (Serial + SD Card)
+// ============================================================================
+
+void logPrint(const char* str) {
+  Serial.print(str);
+  if (loggingEnabled) {
+    logFile = SD.open("FOX.LOG", FILE_WRITE);
+    if (logFile) {
+      logFile.print(str);
+      logFile.close();
+    }
+  }
+}
+
+void logPrint(const String& str) {
+  Serial.print(str);
+  if (loggingEnabled) {
+    logFile = SD.open("FOX.LOG", FILE_WRITE);
+    if (logFile) {
+      logFile.print(str);
+      logFile.close();
+    }
+  }
+}
+
+void logPrint(int val) {
+  Serial.print(val);
+  if (loggingEnabled) {
+    logFile = SD.open("FOX.LOG", FILE_WRITE);
+    if (logFile) {
+      logFile.print(val);
+      logFile.close();
+    }
+  }
+}
+
+void logPrint(float val, int decimals = 2) {
+  Serial.print(val, decimals);
+  if (loggingEnabled) {
+    logFile = SD.open("FOX.LOG", FILE_WRITE);
+    if (logFile) {
+      logFile.print(val, decimals);
+      logFile.close();
+    }
+  }
+}
+
+void logPrintln(const char* str) {
+  Serial.println(str);
+  if (loggingEnabled) {
+    logFile = SD.open("FOX.LOG", FILE_WRITE);
+    if (logFile) {
+      logFile.println(str);
+      logFile.close();
+    }
+  }
+}
+
+void logPrintln(const String& str) {
+  Serial.println(str);
+  if (loggingEnabled) {
+    logFile = SD.open("FOX.LOG", FILE_WRITE);
+    if (logFile) {
+      logFile.println(str);
+      logFile.close();
+    }
+  }
+}
+
+void logPrintln() {
+  Serial.println();
+  if (loggingEnabled) {
+    logFile = SD.open("FOX.LOG", FILE_WRITE);
+    if (logFile) {
+      logFile.println();
+      logFile.close();
+    }
+  }
+}
+```
+
+**Step 3: Timestamp Function Uses Dual-Output**
+
+```cpp
+void printTimestamp() {
+  char timestamp[30];
+  sprintf(timestamp, "[%04d-%02d-%02d %02d:%02d:%02d]", 
+          year(), month(), day(), hour(), minute(), second());
+  logPrint(timestamp);  // ← Uses dual-output function
+}
+```
+
+**Step 4: Helper Function for Direct File Writes**
+
+Only needed for startup message that writes BEFORE Serial Monitor opens:
+
+```cpp
+void printDateTimeToFile(File &file) {
+  const char* monthNames[] = {
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+  };
+  
+  file.print(monthNames[month() - 1]);
+  file.print(" ");
+  file.print(day());
+  file.print(", ");
+  file.print(year());
+  file.print(" ");
+  
+  if (hour() < 10) file.print("0");
+  file.print(hour());
+  file.print(":");
+  
+  if (minute() < 10) file.print("0");
+  file.print(minute());
+  file.print(":");
+  
+  if (second() < 10) file.print("0");
+  file.print(second());
+}
+```
+
+### Usage in Application Code
+
+**CORRECT - All output uses logPrint/logPrintln:**
+
+```cpp
+void reportBatteryStatus(float voltage) {
+  printTimestamp();           // Uses logPrint internally
+  logPrint(" Battery: ");
+  logPrint(voltage, 2);
+  logPrintln("V");
+  
+  if (voltage < 13.6) {
+    logPrintln("WARNING: Low battery");
+  }
+}
+
+// Output to BOTH Serial Monitor and FOX.LOG:
+// [2026-02-14 14:30:05] Battery: 14.73V
+// WARNING: Low battery
+```
+
+**INCORRECT - Direct Serial writes:**
+
+```cpp
+// ❌ BAD - Only goes to Serial Monitor
+void reportBatteryStatus(float voltage) {
+  Serial.print("Battery: ");    // ← Wrong!
+  Serial.println(voltage, 2);   // ← Wrong!
+}
+```
+
+**INCORRECT - Separate SD logic:**
+
+```cpp
+// ❌ BAD - Duplicated logic
+void reportBatteryStatus(float voltage) {
+  Serial.print("Battery: ");
+  Serial.println(voltage, 2);
+  
+  // Don't duplicate SD card logic!
+  if (loggingEnabled) {
+    logFile = SD.open("FOX.LOG", FILE_WRITE);
+    logFile.print("Battery: ");
+    logFile.println(voltage, 2);
+    logFile.close();
+  }
+}
+```
+
+### Log File Naming Convention
+
+- `BAT.LOG` - Battery monitor test logs
+- `AUDIO.LOG` - Audio test logs  
+- `FOX.LOG` - Main controller logs
+- `ERROR.LOG` - Error/diagnostic logs (if needed)
+
+### Key Implementation Rules
+
+1. **Only `logPrint()` and `logPrintln()` write to Serial/SD**
+2. **All application code uses `logPrint()` / `logPrintln()`**
+3. **Never call `Serial.print()` or `Serial.println()` directly in application code**
+4. **Never open SD card files in application code** (except startup message)
+5. **`loggingEnabled` check is ONLY in `logPrint()` / `logPrintln()` functions**
+6. **Open → Write → Close pattern** (reliability over performance)
+
+### Benefits of This Pattern
+
+✅ **Simplicity** - Single call handles both Serial and SD card  
+✅ **Consistency** - Log file exactly matches Serial Monitor  
+✅ **Maintainability** - Logging logic in one place  
+✅ **Testability** - Easy to verify what's being logged  
+✅ **Reliability** - Graceful degradation if SD card fails  
+✅ **Debugging** - See exactly what's written to SD card in Serial Monitor
+
+### Reference Implementations
+
+See these files for complete working examples:
+- `battery_monitor_test/battery_monitor_test.ino` (lines 158-233, 860-866)
+- `audio_test/audio_test.ino` (lines 582-661, 615-628)
+
+Both scripts follow this pattern religiously and serve as templates for all future code.
+
+---
+
 ## Audio Library Integration (WAV Playback)
 
 ### Audio Pipeline Setup

@@ -1,7 +1,7 @@
 /*
  * WX7V Foxhunt Controller - Audio Output Test Script
  * 
- * VERSION: 1.1
+ * VERSION: 1.2
  * 
  * PURPOSE: Standalone test for audio output circuit using PWM tone generation
  * 
@@ -42,14 +42,16 @@
  * VERSION HISTORY:
  * v1.0 - Initial release with PWM tone generation and test patterns
  * v1.1 - Added date/time logging with timestamps for each test
+ * v1.2 - Added SD card logging (dual output to Serial + AUDIO.LOG file)
  */
 
 #include <TimeLib.h>  // Built-in Teensy time library
+#include <SD.h>       // SD card library for logging
 
 // ============================================================================
 // VERSION INFORMATION
 // ============================================================================
-const char* VERSION = "1.1";
+const char* VERSION = "1.2";
 const char* VERSION_DATE = "2026-02-14";
 
 // ============================================================================
@@ -92,6 +94,10 @@ const int SWEEP_STEP_DURATION = 200;         // ms per frequency
 int currentTest = 0;
 unsigned long lastTestTime = 0;
 
+// SD Card logging
+File logFile;
+bool loggingEnabled = true;
+
 // ============================================================================
 // SETUP
 // ============================================================================
@@ -108,6 +114,27 @@ void setup() {
   
   // Better approach: Try to set from compile time macros
   setSyncProvider(getTeensy3Time);  // Use Teensy's RTC
+  
+  // Initialize SD card for logging
+  if (SD.begin(BUILTIN_SDCARD)) {
+    loggingEnabled = true;
+    Serial.println("SD card initialized - logging enabled");
+    
+    // Write startup message to log
+    logFile = SD.open("AUDIO.LOG", FILE_WRITE);
+    if (logFile) {
+      logFile.println();
+      logFile.println("========================================");
+      logFile.print("SYSTEM STARTUP: ");
+      printDateTimeToFile(logFile);
+      logFile.println();
+      logFile.println("========================================");
+      logFile.close();
+    }
+  } else {
+    loggingEnabled = false;
+    Serial.println("SD card failed - continuing without logging");
+  }
   
   // Configure pins
   pinMode(PTT_PIN, OUTPUT);
@@ -208,9 +235,9 @@ void loop() {
     currentTest++;
     if (currentTest > 4) {
       currentTest = 0;
-      Serial.println();
-      Serial.println("=== Test cycle complete, restarting ===");
-      Serial.println();
+      logPrintln();
+      logPrintln("=== Test cycle complete, restarting ===");
+      logPrintln();
     }
   }
 }
@@ -219,16 +246,16 @@ void loop() {
 // TEST 1: SINGLE TONE (800Hz for 2 seconds)
 // ============================================================================
 void runSingleToneTest() {
-  printTimestamp();
-  Serial.println("[TEST 1] Single Tone: 800Hz for 2 seconds");
-  Serial.print("  PTT ON... ");
+  printTimestampToLog();
+  logPrintln("[TEST 1] Single Tone: 800Hz for 2 seconds");
+  logPrint("  PTT ON... ");
   
   // Key radio
   digitalWrite(PTT_PIN, HIGH);
   digitalWrite(LED_PIN, HIGH);
   delay(PTT_PREROLL_MS);
   
-  Serial.println("Transmitting...");
+  logPrintln("Transmitting...");
   
   // Generate tone
   tone(AUDIO_PIN, TEST_TONE_FREQ);
@@ -236,85 +263,85 @@ void runSingleToneTest() {
   noTone(AUDIO_PIN);
   
   // Un-key radio
-  Serial.print("  PTT OFF");
+  logPrint("  PTT OFF");
   delay(PTT_TAIL_MS);
   digitalWrite(PTT_PIN, LOW);
   digitalWrite(LED_PIN, LOW);
   
-  Serial.println(" [DONE]");
-  Serial.println();
+  logPrintln(" [DONE]");
+  logPrintln();
 }
 
 // ============================================================================
 // TEST 2: MORSE CODE "TEST" (Slow - 12 WPM)
 // ============================================================================
 void runMorseTestSlow() {
-  printTimestamp();
-  Serial.println("[TEST 2] Morse Code: 'TEST' at 12 WPM");
-  Serial.print("  PTT ON... ");
+  printTimestampToLog();
+  logPrintln("[TEST 2] Morse Code: 'TEST' at 12 WPM");
+  logPrint("  PTT ON... ");
   
   // Key radio
   digitalWrite(PTT_PIN, HIGH);
   digitalWrite(LED_PIN, HIGH);
   delay(PTT_PREROLL_MS);
   
-  Serial.println("Transmitting...");
+  logPrintln("Transmitting...");
   
   // Send "TEST" in Morse code
   sendMorseMessage("TEST", MORSE_DOT_DURATION);
   
   // Un-key radio
-  Serial.print("  PTT OFF");
+  logPrint("  PTT OFF");
   delay(PTT_TAIL_MS);
   digitalWrite(PTT_PIN, LOW);
   digitalWrite(LED_PIN, LOW);
   
-  Serial.println(" [DONE]");
-  Serial.println();
+  logPrintln(" [DONE]");
+  logPrintln();
 }
 
 // ============================================================================
 // TEST 3: MORSE CODE "TEST" (Fast - 20 WPM)
 // ============================================================================
 void runMorseTestFast() {
-  printTimestamp();
-  Serial.println("[TEST 3] Morse Code: 'TEST' at 20 WPM");
-  Serial.print("  PTT ON... ");
+  printTimestampToLog();
+  logPrintln("[TEST 3] Morse Code: 'TEST' at 20 WPM");
+  logPrint("  PTT ON... ");
   
   // Key radio
   digitalWrite(PTT_PIN, HIGH);
   digitalWrite(LED_PIN, HIGH);
   delay(PTT_PREROLL_MS);
   
-  Serial.println("Transmitting...");
+  logPrintln("Transmitting...");
   
   // Send "TEST" in Morse code at faster speed
   sendMorseMessage("TEST", 60);  // 60ms dot = ~20 WPM
   
   // Un-key radio
-  Serial.print("  PTT OFF");
+  logPrint("  PTT OFF");
   delay(PTT_TAIL_MS);
   digitalWrite(PTT_PIN, LOW);
   digitalWrite(LED_PIN, LOW);
   
-  Serial.println(" [DONE]");
-  Serial.println();
+  logPrintln(" [DONE]");
+  logPrintln();
 }
 
 // ============================================================================
 // TEST 4: TWO-TONE TEST (Alternating tones)
 // ============================================================================
 void runTwoToneTest() {
-  printTimestamp();
-  Serial.println("[TEST 4] Two-Tone Test: 800Hz / 1200Hz alternating");
-  Serial.print("  PTT ON... ");
+  printTimestampToLog();
+  logPrintln("[TEST 4] Two-Tone Test: 800Hz / 1200Hz alternating");
+  logPrint("  PTT ON... ");
   
   // Key radio
   digitalWrite(PTT_PIN, HIGH);
   digitalWrite(LED_PIN, HIGH);
   delay(PTT_PREROLL_MS);
   
-  Serial.println("Transmitting...");
+  logPrintln("Transmitting...");
   
   // Alternate between two tones
   for (int i = 0; i < 4; i++) {
@@ -326,48 +353,48 @@ void runTwoToneTest() {
   noTone(AUDIO_PIN);
   
   // Un-key radio
-  Serial.print("  PTT OFF");
+  logPrint("  PTT OFF");
   delay(PTT_TAIL_MS);
   digitalWrite(PTT_PIN, LOW);
   digitalWrite(LED_PIN, LOW);
   
-  Serial.println(" [DONE]");
-  Serial.println();
+  logPrintln(" [DONE]");
+  logPrintln();
 }
 
 // ============================================================================
 // TEST 5: FREQUENCY SWEEP (400Hz to 2000Hz)
 // ============================================================================
 void runFrequencySweep() {
-  printTimestamp();
-  Serial.println("[TEST 5] Frequency Sweep: 400Hz to 2000Hz");
-  Serial.print("  PTT ON... ");
+  printTimestampToLog();
+  logPrintln("[TEST 5] Frequency Sweep: 400Hz to 2000Hz");
+  logPrint("  PTT ON... ");
   
   // Key radio
   digitalWrite(PTT_PIN, HIGH);
   digitalWrite(LED_PIN, HIGH);
   delay(PTT_PREROLL_MS);
   
-  Serial.println("Transmitting...");
+  logPrintln("Transmitting...");
   
   // Sweep through frequencies
   for (int freq = SWEEP_START_FREQ; freq <= SWEEP_END_FREQ; freq += SWEEP_STEP) {
-    Serial.print("    Frequency: ");
-    Serial.print(freq);
-    Serial.println("Hz");
+    char freqStr[50];
+    sprintf(freqStr, "    Frequency: %dHz", freq);
+    logPrintln(freqStr);
     tone(AUDIO_PIN, freq);
     delay(SWEEP_STEP_DURATION);
   }
   noTone(AUDIO_PIN);
   
   // Un-key radio
-  Serial.print("  PTT OFF");
+  logPrint("  PTT OFF");
   delay(PTT_TAIL_MS);
   digitalWrite(PTT_PIN, LOW);
   digitalWrite(LED_PIN, LOW);
   
-  Serial.println(" [DONE]");
-  Serial.println();
+  logPrintln(" [DONE]");
+  logPrintln();
 }
 
 // ============================================================================
@@ -519,6 +546,129 @@ void printDateTime() {
   
   if (second() < 10) Serial.print("0");
   Serial.print(second());
+}
+
+// ============================================================================
+// PRINT DATE AND TIME TO FILE
+// ============================================================================
+void printDateTimeToFile(File &file) {
+  const char* monthNames[] = {
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+  };
+  
+  file.print(monthNames[month() - 1]);
+  file.print(" ");
+  file.print(day());
+  file.print(", ");
+  file.print(year());
+  file.print(" ");
+  
+  if (hour() < 10) file.print("0");
+  file.print(hour());
+  file.print(":");
+  
+  if (minute() < 10) file.print("0");
+  file.print(minute());
+  file.print(":");
+  
+  if (second() < 10) file.print("0");
+  file.print(second());
+}
+
+// ============================================================================
+// DUAL-OUTPUT LOGGING FUNCTIONS (Serial + SD Card)
+// ============================================================================
+void logPrint(const char* str) {
+  Serial.print(str);
+  if (loggingEnabled) {
+    logFile = SD.open("AUDIO.LOG", FILE_WRITE);
+    if (logFile) {
+      logFile.print(str);
+      logFile.close();
+    }
+  }
+}
+
+void logPrint(const String& str) {
+  Serial.print(str);
+  if (loggingEnabled) {
+    logFile = SD.open("AUDIO.LOG", FILE_WRITE);
+    if (logFile) {
+      logFile.print(str);
+      logFile.close();
+    }
+  }
+}
+
+void logPrint(int val) {
+  Serial.print(val);
+  if (loggingEnabled) {
+    logFile = SD.open("AUDIO.LOG", FILE_WRITE);
+    if (logFile) {
+      logFile.print(val);
+      logFile.close();
+    }
+  }
+}
+
+void logPrint(float val, int decimals = 2) {
+  Serial.print(val, decimals);
+  if (loggingEnabled) {
+    logFile = SD.open("AUDIO.LOG", FILE_WRITE);
+    if (logFile) {
+      logFile.print(val, decimals);
+      logFile.close();
+    }
+  }
+}
+
+void logPrintln(const char* str) {
+  Serial.println(str);
+  if (loggingEnabled) {
+    logFile = SD.open("AUDIO.LOG", FILE_WRITE);
+    if (logFile) {
+      logFile.println(str);
+      logFile.close();
+    }
+  }
+}
+
+void logPrintln(const String& str) {
+  Serial.println(str);
+  if (loggingEnabled) {
+    logFile = SD.open("AUDIO.LOG", FILE_WRITE);
+    if (logFile) {
+      logFile.println(str);
+      logFile.close();
+    }
+  }
+}
+
+void logPrintln() {
+  Serial.println();
+  if (loggingEnabled) {
+    logFile = SD.open("AUDIO.LOG", FILE_WRITE);
+    if (logFile) {
+      logFile.println();
+      logFile.close();
+    }
+  }
+}
+
+void printTimestampToLog() {
+  char timestamp[30];
+  sprintf(timestamp, "[%04d-%02d-%02d %02d:%02d:%02d] ", 
+          year(), month(), day(), hour(), minute(), second());
+  Serial.print(timestamp);
+  
+  if (loggingEnabled) {
+    logFile = SD.open("AUDIO.LOG", FILE_WRITE);
+    if (logFile) {
+      logFile.print(timestamp);
+      logFile.close();
+    }
+  }
 }
 
 // ============================================================================
