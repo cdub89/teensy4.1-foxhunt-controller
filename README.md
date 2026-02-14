@@ -393,7 +393,7 @@ This software is designed for **amateur radio operations only**. Users are respo
 
 **Chris L White, WX7V**
 
-Project repository: [GitHub - teensy4.1 foxhunt controller](https://github.com/wx7v/teensy4.1)
+Project repository: [GitHub - teensy4.1 foxhunt controller](https://github.com/cdub89/teensy4.1-foxhunt-controller)
 
 ---
 
