@@ -1,7 +1,7 @@
 /*
  * WX7V Foxhunt Controller - Battery Monitor Test Script
  * 
- * VERSION: 1.6
+ * VERSION: 1.7
  * 
  * PURPOSE: Standalone test for battery voltage monitoring circuit
  * 
@@ -44,14 +44,16 @@
  * v1.4 - Fixed voltage thresholds (GOOD now 14.0V vs 14.8V for realistic LiPo monitoring)
  * v1.5 - Enhanced Morse code with multi-letter messages (SG, OL, OV, SOS)
  * v1.6 - Added SD card logging
+ * v1.7 - Added date/time stamping for all log entries
  */
 
 #include <SD.h>
+#include <TimeLib.h>  // Built-in Teensy time library
 
 // ============================================================================
 // VERSION INFORMATION
 // ============================================================================
-const char* VERSION = "1.6";
+const char* VERSION = "1.7";
 const char* VERSION_DATE = "2026-02-14";
 
 // ============================================================================
@@ -240,6 +242,9 @@ void setup() {
     // Wait for Serial Monitor to open (max 3 seconds)
   }
   
+  // Set up RTC - try to use Teensy's hardware RTC
+  setSyncProvider(getTeensy3Time);
+  
   // Configure pins
   pinMode(LED_PIN, OUTPUT);
   pinMode(BATTERY_PIN, INPUT);
@@ -278,6 +283,30 @@ void setup() {
   } else {
     loggingEnabled = false;
     Serial.println(" FAILED (continuing without logging)");
+  }
+  
+  // Print startup timestamp to both Serial and SD card
+  Serial.println();
+  Serial.println("========================================");
+  Serial.print("SYSTEM STARTUP: ");
+  printDateTime();
+  Serial.println();
+  Serial.println("========================================");
+  Serial.println();
+  
+  // Write startup message to SD card log
+  if (loggingEnabled) {
+    logFile = SD.open("BAT.LOG", FILE_WRITE);
+    if (logFile) {
+      logFile.println();
+      logFile.println("========================================");
+      logFile.print("SYSTEM STARTUP: ");
+      printDateTimeToFile(logFile);
+      logFile.println();
+      logFile.println("========================================");
+      logFile.println();
+      logFile.close();
+    }
   }
   
   Serial.println("Hardware Configuration:");
@@ -684,6 +713,9 @@ void displayVoltageReading(float batteryVoltage) {
   // Format and print reading with fixed-width columns for alignment
   char buffer[80];
   
+  // Timestamp prefix
+  printTimestamp();
+  
   // Runtime (format: HH:MM:SS)
   logPrint(" ");
   logPrint(formatDuration(totalRunTime));
@@ -816,9 +848,108 @@ void updateMorseLED() {
 }
 
 // ============================================================================
+// GET TEENSY RTC TIME
+// ============================================================================
+time_t getTeensy3Time() {
+  return Teensy3Clock.get();
+}
+
+// ============================================================================
+// PRINT TIMESTAMP (Date and Time) - For Serial Monitor
+// ============================================================================
+void printTimestamp() {
+  char timestamp[30];
+  sprintf(timestamp, "[%04d-%02d-%02d %02d:%02d:%02d]", 
+          year(), month(), day(), hour(), minute(), second());
+  Serial.print(timestamp);
+  
+  // Also write to SD card if enabled
+  if (loggingEnabled) {
+    logFile = SD.open("BAT.LOG", FILE_WRITE);
+    if (logFile) {
+      logFile.print(timestamp);
+      logFile.close();
+    }
+  }
+}
+
+// ============================================================================
+// PRINT DATE AND TIME (Full format) - For Serial Monitor
+// ============================================================================
+void printDateTime() {
+  const char* monthNames[] = {
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+  };
+  
+  Serial.print(monthNames[month() - 1]);
+  Serial.print(" ");
+  Serial.print(day());
+  Serial.print(", ");
+  Serial.print(year());
+  Serial.print(" ");
+  
+  if (hour() < 10) Serial.print("0");
+  Serial.print(hour());
+  Serial.print(":");
+  
+  if (minute() < 10) Serial.print("0");
+  Serial.print(minute());
+  Serial.print(":");
+  
+  if (second() < 10) Serial.print("0");
+  Serial.print(second());
+}
+
+// ============================================================================
+// PRINT DATE AND TIME TO FILE (Full format) - For SD Card
+// ============================================================================
+void printDateTimeToFile(File &file) {
+  const char* monthNames[] = {
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+  };
+  
+  file.print(monthNames[month() - 1]);
+  file.print(" ");
+  file.print(day());
+  file.print(", ");
+  file.print(year());
+  file.print(" ");
+  
+  if (hour() < 10) file.print("0");
+  file.print(hour());
+  file.print(":");
+  
+  if (minute() < 10) file.print("0");
+  file.print(minute());
+  file.print(":");
+  
+  if (second() < 10) file.print("0");
+  file.print(second());
+}
+
+// ============================================================================
 // CALIBRATION NOTES
 // ============================================================================
 /*
+ * SETTING THE DATE/TIME:
+ * 
+ * The Teensy 4.1 has a built-in battery-backed RTC (Real-Time Clock).
+ * Time is automatically set from the Teensy's RTC on startup.
+ * 
+ * To set the correct date/time:
+ * 1. Upload this sketch
+ * 2. Use Arduino IDE: Tools → Set Time → OK (sets RTC to computer's time)
+ * 3. The RTC will maintain time even after power off (with backup battery)
+ * 
+ * To manually set time in code:
+ *   setTime(hour, minute, second, day, month, year);
+ *   Example: setTime(14, 30, 0, 14, 2, 2026);  // Feb 14, 2026 at 2:30 PM
+ *   Teensy3Clock.set(now());  // Write to hardware RTC
+ * 
+ * VOLTAGE CALIBRATION:
+ * 
  * To calibrate voltage readings:
  * 
  * 1. Measure actual battery voltage with multimeter

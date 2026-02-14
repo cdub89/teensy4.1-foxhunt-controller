@@ -1,7 +1,7 @@
 /*
  * WX7V Foxhunt Controller - Audio Output Test Script
  * 
- * VERSION: 1.0
+ * VERSION: 1.1
  * 
  * PURPOSE: Standalone test for audio output circuit using PWM tone generation
  * 
@@ -41,12 +41,15 @@
  * 
  * VERSION HISTORY:
  * v1.0 - Initial release with PWM tone generation and test patterns
+ * v1.1 - Added date/time logging with timestamps for each test
  */
+
+#include <TimeLib.h>  // Built-in Teensy time library
 
 // ============================================================================
 // VERSION INFORMATION
 // ============================================================================
-const char* VERSION = "1.0";
+const char* VERSION = "1.1";
 const char* VERSION_DATE = "2026-02-14";
 
 // ============================================================================
@@ -99,6 +102,13 @@ void setup() {
     // Wait for Serial Monitor to open (max 3 seconds)
   }
   
+  // Set compile time as initial RTC time
+  // Format: "Feb 14 2026" and "12:34:56"
+  setTime(12, 0, 0, 14, 2, 2026);  // Will be set to compile time
+  
+  // Better approach: Try to set from compile time macros
+  setSyncProvider(getTeensy3Time);  // Use Teensy's RTC
+  
   // Configure pins
   pinMode(PTT_PIN, OUTPUT);
   pinMode(AUDIO_PIN, OUTPUT);
@@ -129,6 +139,15 @@ void setup() {
   Serial.println("##                                    ##");
   Serial.println("########################################");
   Serial.println();
+  
+  // Print initialization timestamp
+  Serial.println("========================================");
+  Serial.print("SYSTEM STARTUP: ");
+  printDateTime();
+  Serial.println();
+  Serial.println("========================================");
+  Serial.println();
+  
   Serial.println("Hardware Configuration:");
   Serial.println("  Pin 2:  PTT Control (via 2N2222)");
   Serial.println("  Pin 12: Audio Output (PWM)");
@@ -200,6 +219,7 @@ void loop() {
 // TEST 1: SINGLE TONE (800Hz for 2 seconds)
 // ============================================================================
 void runSingleToneTest() {
+  printTimestamp();
   Serial.println("[TEST 1] Single Tone: 800Hz for 2 seconds");
   Serial.print("  PTT ON... ");
   
@@ -229,6 +249,7 @@ void runSingleToneTest() {
 // TEST 2: MORSE CODE "TEST" (Slow - 12 WPM)
 // ============================================================================
 void runMorseTestSlow() {
+  printTimestamp();
   Serial.println("[TEST 2] Morse Code: 'TEST' at 12 WPM");
   Serial.print("  PTT ON... ");
   
@@ -256,6 +277,7 @@ void runMorseTestSlow() {
 // TEST 3: MORSE CODE "TEST" (Fast - 20 WPM)
 // ============================================================================
 void runMorseTestFast() {
+  printTimestamp();
   Serial.println("[TEST 3] Morse Code: 'TEST' at 20 WPM");
   Serial.print("  PTT ON... ");
   
@@ -283,6 +305,7 @@ void runMorseTestFast() {
 // TEST 4: TWO-TONE TEST (Alternating tones)
 // ============================================================================
 void runTwoToneTest() {
+  printTimestamp();
   Serial.println("[TEST 4] Two-Tone Test: 800Hz / 1200Hz alternating");
   Serial.print("  PTT ON... ");
   
@@ -316,6 +339,7 @@ void runTwoToneTest() {
 // TEST 5: FREQUENCY SWEEP (400Hz to 2000Hz)
 // ============================================================================
 void runFrequencySweep() {
+  printTimestamp();
   Serial.println("[TEST 5] Frequency Sweep: 400Hz to 2000Hz");
   Serial.print("  PTT ON... ");
   
@@ -453,9 +477,70 @@ String getMorsePattern(char c) {
 }
 
 // ============================================================================
+// GET TEENSY RTC TIME
+// ============================================================================
+time_t getTeensy3Time() {
+  return Teensy3Clock.get();
+}
+
+// ============================================================================
+// PRINT TIMESTAMP (Date and Time)
+// ============================================================================
+void printTimestamp() {
+  char timestamp[30];
+  sprintf(timestamp, "[%04d-%02d-%02d %02d:%02d:%02d] ", 
+          year(), month(), day(), hour(), minute(), second());
+  Serial.print(timestamp);
+}
+
+// ============================================================================
+// PRINT DATE AND TIME (Full format)
+// ============================================================================
+void printDateTime() {
+  const char* monthNames[] = {
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+  };
+  
+  Serial.print(monthNames[month() - 1]);
+  Serial.print(" ");
+  Serial.print(day());
+  Serial.print(", ");
+  Serial.print(year());
+  Serial.print(" ");
+  
+  if (hour() < 10) Serial.print("0");
+  Serial.print(hour());
+  Serial.print(":");
+  
+  if (minute() < 10) Serial.print("0");
+  Serial.print(minute());
+  Serial.print(":");
+  
+  if (second() < 10) Serial.print("0");
+  Serial.print(second());
+}
+
+// ============================================================================
 // CALIBRATION & TESTING NOTES
 // ============================================================================
 /*
+ * SETTING THE DATE/TIME:
+ * 
+ * The Teensy 4.1 has a built-in battery-backed RTC (Real-Time Clock).
+ * Time is automatically set from the Teensy's RTC on startup.
+ * 
+ * To set the correct date/time:
+ * 1. Upload this sketch with the correct compile date/time
+ * 2. Or use Teensy's "Set Time" feature in Arduino IDE:
+ *    Tools → Set Time → OK (sets RTC to computer's current time)
+ * 3. The RTC will maintain time even after power off (with backup battery)
+ * 
+ * To manually set time in code:
+ *   setTime(hour, minute, second, day, month, year);
+ *   Example: setTime(14, 30, 0, 14, 2, 2026);  // Feb 14, 2026 at 2:30 PM
+ *   Teensy3Clock.set(now());  // Write to hardware RTC
+ * 
  * AUDIO LEVEL ADJUSTMENT:
  * 
  * 1. Connect radio with audio cable and PTT circuit

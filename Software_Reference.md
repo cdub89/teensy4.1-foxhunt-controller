@@ -229,12 +229,24 @@ void checkBatteryStatus() {
 
 **Solution:** Combine hysteresis (voltage bands) with debouncing (multiple consecutive readings).
 
+**Complete 5-State Implementation** (from `battery_monitor_test.ino`):
+
 ```cpp
+// Battery state enumeration
+enum BatteryState {
+  STATE_GOOD,         // >= 14.0V (3.50V/cell)
+  STATE_LOW,          // >= 13.6V (3.40V/cell)
+  STATE_VERY_LOW,     // >= 12.8V (3.20V/cell)
+  STATE_SHUTDOWN,     // >= 12.0V (3.00V/cell)
+  STATE_CRITICAL      // < 12.0V (damage risk!)
+};
+
 // Battery thresholds with hysteresis
-const float VOLTAGE_GOOD = 14.0;
-const float VOLTAGE_SOFT_WARNING = 13.6;
-const float VOLTAGE_HARD_SHUTDOWN = 12.8;
-const float VOLTAGE_HYSTERESIS = 0.2;  // 0.2V band prevents bouncing
+const float VOLTAGE_GOOD = 14.0;             // 3.50V per cell
+const float VOLTAGE_SOFT_WARNING = 13.6;     // 3.40V per cell
+const float VOLTAGE_HARD_SHUTDOWN = 12.8;    // 3.20V per cell
+const float VOLTAGE_CRITICAL = 12.0;         // 3.00V per cell
+const float VOLTAGE_HYSTERESIS = 0.2;        // 0.2V band prevents bouncing
 
 // Debounce settings
 const int STATE_CHANGE_DEBOUNCE_COUNT = 3;  // Require 3 consecutive readings
@@ -246,31 +258,65 @@ int stateDebounceCounter = 0;
 void updateBatteryState(float batteryVoltage) {
   BatteryState measuredState;
   
-  // Apply hysteresis based on current state
+  // Apply hysteresis based on current state to prevent bouncing
   if (currentState == STATE_GOOD) {
-    // Need to drop below threshold - hysteresis to trigger warning
+    // Need to drop below threshold minus hysteresis to trigger warning
     if (batteryVoltage >= VOLTAGE_GOOD) {
       measuredState = STATE_GOOD;
     } else if (batteryVoltage >= VOLTAGE_SOFT_WARNING - VOLTAGE_HYSTERESIS) {
       measuredState = STATE_LOW;
-    } else {
+    } else if (batteryVoltage >= VOLTAGE_HARD_SHUTDOWN - VOLTAGE_HYSTERESIS) {
+      measuredState = STATE_VERY_LOW;
+    } else if (batteryVoltage >= VOLTAGE_CRITICAL - VOLTAGE_HYSTERESIS) {
       measuredState = STATE_SHUTDOWN;
+    } else {
+      measuredState = STATE_CRITICAL;
     }
   } else if (currentState == STATE_LOW) {
-    // Need to rise above threshold + hysteresis to return to good
+    // Need to rise above threshold + hysteresis to return to GOOD
     if (batteryVoltage >= VOLTAGE_GOOD + VOLTAGE_HYSTERESIS) {
       measuredState = STATE_GOOD;
     } else if (batteryVoltage >= VOLTAGE_SOFT_WARNING) {
       measuredState = STATE_LOW;
-    } else {
+    } else if (batteryVoltage >= VOLTAGE_HARD_SHUTDOWN - VOLTAGE_HYSTERESIS) {
+      measuredState = STATE_VERY_LOW;
+    } else if (batteryVoltage >= VOLTAGE_CRITICAL - VOLTAGE_HYSTERESIS) {
       measuredState = STATE_SHUTDOWN;
+    } else {
+      measuredState = STATE_CRITICAL;
     }
-  } else { // STATE_SHUTDOWN
-    // Once in shutdown, need significant recovery
-    if (batteryVoltage >= VOLTAGE_HARD_SHUTDOWN + VOLTAGE_HYSTERESIS) {
+  } else if (currentState == STATE_VERY_LOW) {
+    // Add hysteresis for recovery
+    if (batteryVoltage >= VOLTAGE_GOOD + VOLTAGE_HYSTERESIS) {
+      measuredState = STATE_GOOD;
+    } else if (batteryVoltage >= VOLTAGE_SOFT_WARNING + VOLTAGE_HYSTERESIS) {
       measuredState = STATE_LOW;
-    } else {
+    } else if (batteryVoltage >= VOLTAGE_HARD_SHUTDOWN) {
+      measuredState = STATE_VERY_LOW;
+    } else if (batteryVoltage >= VOLTAGE_CRITICAL - VOLTAGE_HYSTERESIS) {
       measuredState = STATE_SHUTDOWN;
+    } else {
+      measuredState = STATE_CRITICAL;
+    }
+  } else if (currentState == STATE_SHUTDOWN) {
+    // Once in shutdown, need significant recovery
+    if (batteryVoltage >= VOLTAGE_GOOD + VOLTAGE_HYSTERESIS) {
+      measuredState = STATE_GOOD;
+    } else if (batteryVoltage >= VOLTAGE_SOFT_WARNING + VOLTAGE_HYSTERESIS) {
+      measuredState = STATE_LOW;
+    } else if (batteryVoltage >= VOLTAGE_HARD_SHUTDOWN + VOLTAGE_HYSTERESIS) {
+      measuredState = STATE_VERY_LOW;
+    } else if (batteryVoltage >= VOLTAGE_CRITICAL) {
+      measuredState = STATE_SHUTDOWN;
+    } else {
+      measuredState = STATE_CRITICAL;
+    }
+  } else { // STATE_CRITICAL
+    // Once critical, need significant recovery to change state
+    if (batteryVoltage >= VOLTAGE_HARD_SHUTDOWN + VOLTAGE_HYSTERESIS) {
+      measuredState = STATE_SHUTDOWN;
+    } else {
+      measuredState = STATE_CRITICAL;
     }
   }
   
@@ -282,9 +328,11 @@ void updateBatteryState(float batteryVoltage) {
       
       if (stateDebounceCounter >= STATE_CHANGE_DEBOUNCE_COUNT) {
         // Confirmed! Change state
+        previousState = currentState;
         currentState = measuredState;
         stateDebounceCounter = 0;
-        handleStateTransition();  // Log, alert, etc.
+        
+        handleStateTransition();  // Log, alert, update LED pattern, etc.
       }
     } else {
       // Different pending state, restart counter
@@ -382,6 +430,382 @@ void blinkSOS() {
 - Test with actual battery under load (radio transmitting) for accurate readings
 - Over-discharge below 3.0V/cell (12.0V total) permanently damages LiPo cells
 - Never bypass hard shutdown threshold
+
+---
+
+## LED Morse Code Battery Status Indication
+
+### Overview
+
+Visual feedback via LED flashing Morse code patterns provides instant battery status without requiring serial connection. Enhances field deployment by giving clear warnings visible from a distance.
+
+**Implementation:** Non-blocking state machine that continuously repeats contextual Morse messages.
+
+### Morse Code Patterns by Battery State
+
+| Battery State | LED Pattern | Message |
+|--------------|-------------|---------|
+| GOOD | `... --.` | "SG" - **S**tatus **G**ood |
+| LOW | `--- .-..` | "OL" - **O**h **L**ow |
+| VERY_LOW | `--- ...-` | "OV" - **O**h **V**ery low |
+| SHUTDOWN | `... --- ... ...` | "SOSS" - **SOS** **S**hutdown |
+| CRITICAL | `... --- ... -.-.` | "SOSC" - **SOS** **C**ritical |
+
+**Design rationale:**
+- **Status (S)** prefix for normal operation (GOOD)
+- **Oh (O)** prefix for warning states (LOW, VERY_LOW)
+- **SOS** prefix for emergency states (SHUTDOWN, CRITICAL)
+
+### Complete Non-Blocking Implementation
+
+See `battery_monitor_test/battery_monitor_test.ino` (lines 511-629) for full working example.
+
+```cpp
+// International Morse Code timing (~6 WPM for visual clarity)
+const int MORSE_DOT_DURATION = 200;       // 200ms
+const int MORSE_DASH_DURATION = 600;      // 3x dot
+const int MORSE_ELEMENT_SPACE = 200;      // Same as dot
+const int MORSE_LETTER_SPACE = 600;       // 3x dot
+const int MORSE_WORD_SPACE = 1400;        // 7x dot (between repeats)
+
+// Morse state machine
+String currentMorsePattern = "";
+unsigned int morseIndex = 0;
+unsigned long morseElementStartTime = 0;
+bool morseLedOn = false;
+
+// Get Morse pattern based on battery state
+String getMorsePattern(BatteryState state) {
+  switch (state) {
+    case STATE_GOOD:
+      return "... --. ";        // SG = Status Good
+    case STATE_LOW:
+      return "--- .-.. ";       // OL = Oh Low
+    case STATE_VERY_LOW:
+      return "--- ...- ";       // OV = Oh Very low
+    case STATE_SHUTDOWN:
+      return "... --- ... ... ";  // SOSS = SOS Shutdown
+    case STATE_CRITICAL:
+      return "... --- ... -.-. ";  // SOSC = SOS Critical
+    default:
+      return "...- ";           // V = unknown
+  }
+}
+
+// Non-blocking Morse code LED flasher
+void updateMorseLED() {
+  unsigned long currentTime = millis();
+  
+  // Initialize pattern if empty
+  if (currentMorsePattern.length() == 0) {
+    currentMorsePattern = getMorsePattern(currentState);
+    morseIndex = 0;
+    morseElementStartTime = currentTime;
+    morseLedOn = false;
+  }
+  
+  // Finished pattern? Reset and add inter-word space
+  if (morseIndex >= currentMorsePattern.length()) {
+    if (!morseLedOn && (currentTime - morseElementStartTime >= MORSE_WORD_SPACE)) {
+      // Time to restart pattern
+      currentMorsePattern = getMorsePattern(currentState);  // Refresh in case state changed
+      morseIndex = 0;
+      morseElementStartTime = currentTime;
+    }
+    return;  // Wait for word space to finish
+  }
+  
+  char currentChar = currentMorsePattern[morseIndex];
+  
+  if (morseLedOn) {
+    // LED is currently ON - check if it's time to turn OFF
+    unsigned long onDuration = (currentChar == '.') ? MORSE_DOT_DURATION : MORSE_DASH_DURATION;
+    
+    if (currentTime - morseElementStartTime >= onDuration) {
+      digitalWrite(LED_PIN, LOW);
+      morseLedOn = false;
+      morseElementStartTime = currentTime;
+      morseIndex++;  // Move to next element AFTER turning off
+    }
+  } else {
+    // LED is currently OFF - check if it's time to turn ON next element
+    unsigned long offDuration;
+    
+    if (currentChar == ' ') {
+      // Space between letters
+      offDuration = MORSE_LETTER_SPACE;
+      morseIndex++;  // Skip the space character
+      morseElementStartTime = currentTime;
+      return;
+    } else {
+      // Space between dots/dashes within a letter
+      offDuration = MORSE_ELEMENT_SPACE;
+    }
+    
+    if (currentTime - morseElementStartTime >= offDuration) {
+      // Time to turn on LED for next element
+      if (morseIndex < currentMorsePattern.length()) {
+        currentChar = currentMorsePattern[morseIndex];
+        
+        if (currentChar == '.' || currentChar == '-') {
+          digitalWrite(LED_PIN, HIGH);
+          morseLedOn = true;
+          morseElementStartTime = currentTime;
+        }
+      }
+    }
+  }
+}
+```
+
+### Usage in Main Loop
+
+```cpp
+void loop() {
+  // Read battery voltage
+  float batteryVoltage = readBatteryVoltage();
+  
+  // Update battery state (handles hysteresis & debouncing)
+  updateBatteryState(batteryVoltage);
+  
+  // Update LED Morse pattern continuously (non-blocking)
+  updateMorseLED();
+  
+  // ... rest of application code ...
+}
+```
+
+### Timing Considerations
+
+**Standard Morse Timing (per ITU):**
+- 1 unit = dot duration
+- Dash = 3 units
+- Space between elements = 1 unit
+- Space between letters = 3 units
+- Space between words = 7 units
+
+**Speed settings:**
+- **6 WPM** (200ms dot): Optimal for LED visibility in field
+- **12 WPM** (100ms dot): Faster, still readable
+- **20 WPM** (60ms dot): Too fast for visual LED reading
+
+**Formula:** `WPM = 1200 / dot_duration_ms`
+
+### State Change Handling
+
+The Morse pattern automatically updates when battery state changes:
+
+```cpp
+void handleStateTransition() {
+  previousState = currentState;
+  
+  // Log state change with timestamp
+  printTimestamp();
+  logPrint(" Battery state changed: ");
+  logPrint(getStateString(previousState));
+  logPrint(" → ");
+  logPrintln(getStateString(currentState));
+  
+  // Morse pattern will update on next updateMorseLED() call
+  // No need to manually reset - pattern fetched fresh each cycle
+}
+```
+
+### Benefits
+
+1. **Visual Status:** Instantly see battery health without serial connection
+2. **Field Deployment:** Radio operators can see LED from a distance
+3. **No Additional Hardware:** Uses existing status LED
+4. **Non-blocking:** Doesn't interfere with other real-time tasks
+5. **Contextual Messaging:** Pattern immediately indicates severity (S, O, SOS)
+
+---
+
+## Runtime Tracking & State Transition Analytics
+
+### Overview
+
+Track total runtime and time spent in each battery state for performance analysis and battery health monitoring. Essential for:
+- Field testing and validation
+- Battery capacity estimation
+- Identifying premature discharge issues
+- Long-term performance trending
+
+### Implementation
+
+```cpp
+// Runtime tracking variables
+unsigned long startTime = 0;
+unsigned long totalRunTime = 0;
+
+// State tracking
+BatteryState currentState = STATE_GOOD;
+BatteryState previousState = STATE_GOOD;
+
+// Time tracking for each state
+unsigned long timeEnteredGood = 0;
+unsigned long timeEnteredLow = 0;
+unsigned long timeEnteredVeryLow = 0;
+unsigned long timeEnteredShutdown = 0;
+unsigned long timeEnteredCritical = 0;
+
+// Duration tracking (cumulative)
+unsigned long durationInGood = 0;
+unsigned long durationInLow = 0;
+unsigned long durationInVeryLow = 0;
+unsigned long durationInShutdown = 0;
+
+void setup() {
+  startTime = millis();
+  timeEnteredGood = startTime;  // Assume GOOD at startup
+}
+
+void loop() {
+  // Update total runtime
+  totalRunTime = millis() - startTime;
+  
+  // ... battery monitoring code ...
+}
+```
+
+### State Transition Handler
+
+```cpp
+void handleStateTransition() {
+  unsigned long now = millis();
+  
+  // Calculate duration in previous state
+  unsigned long duration;
+  
+  switch (previousState) {
+    case STATE_GOOD:
+      duration = now - timeEnteredGood;
+      durationInGood += duration;
+      break;
+    case STATE_LOW:
+      duration = now - timeEnteredLow;
+      durationInLow += duration;
+      break;
+    case STATE_VERY_LOW:
+      duration = now - timeEnteredVeryLow;
+      durationInVeryLow += duration;
+      break;
+    case STATE_SHUTDOWN:
+      duration = now - timeEnteredShutdown;
+      durationInShutdown += duration;
+      break;
+    case STATE_CRITICAL:
+      // Critical state - no cumulative tracking needed
+      break;
+  }
+  
+  // Log the transition with timestamp
+  printTimestamp();
+  logPrint(" State transition: ");
+  logPrint(getStateString(previousState));
+  logPrint(" → ");
+  logPrint(getStateString(currentState));
+  logPrint(" (");
+  printDuration(duration);
+  logPrintln(")");
+  
+  // Record entry time for new state
+  switch (currentState) {
+    case STATE_GOOD:
+      timeEnteredGood = now;
+      break;
+    case STATE_LOW:
+      timeEnteredLow = now;
+      break;
+    case STATE_VERY_LOW:
+      timeEnteredVeryLow = now;
+      break;
+    case STATE_SHUTDOWN:
+      timeEnteredShutdown = now;
+      break;
+    case STATE_CRITICAL:
+      timeEnteredCritical = now;
+      break;
+  }
+}
+```
+
+### Duration Formatting
+
+```cpp
+void printDuration(unsigned long milliseconds) {
+  unsigned long seconds = milliseconds / 1000;
+  unsigned long minutes = seconds / 60;
+  unsigned long hours = minutes / 60;
+  
+  seconds = seconds % 60;
+  minutes = minutes % 60;
+  
+  char buffer[20];
+  sprintf(buffer, "%02luh:%02lum:%02lus", hours, minutes, seconds);
+  logPrint(buffer);
+}
+```
+
+### Example Output
+
+```
+[2026-02-14 14:00:00] SYSTEM STARTUP: Feb 14, 2026 14:00:00
+[2026-02-14 14:00:00] Initial battery: 14.82V (GOOD)
+
+Runtime | ADC | Pin A9 | Battery | Cell Avg | Status
+---------+------+---------+---------+----------+-------------------
+00h:00m:00s | 770 | 2.48V | 14.82V | 3.71V | [OK] GOOD
+
+[2026-02-14 15:23:15] State transition: GOOD → LOW (01h:23m:15s)
+
+Runtime | ADC | Pin A9 | Battery | Cell Avg | Status
+---------+------+---------+---------+----------+-------------------
+01h:23m:15s | 696 | 2.24V | 13.48V | 3.37V | [WARN] LOW
+
+[2026-02-14 17:45:02] State transition: LOW → VERY_LOW (02h:21m:47s)
+```
+
+### Summary Statistics
+
+Periodically log cumulative statistics:
+
+```cpp
+void printStatistics() {
+  printTimestamp();
+  logPrintln(" === Runtime Statistics ===");
+  
+  logPrint("Total runtime: ");
+  printDuration(totalRunTime);
+  logPrintln();
+  
+  logPrint("Time in GOOD: ");
+  printDuration(durationInGood);
+  logPrintln();
+  
+  logPrint("Time in LOW: ");
+  printDuration(durationInLow);
+  logPrintln();
+  
+  logPrint("Time in VERY_LOW: ");
+  printDuration(durationInVeryLow);
+  logPrintln();
+  
+  logPrint("Time in SHUTDOWN: ");
+  printDuration(durationInShutdown);
+  logPrintln();
+}
+
+// Call every 6 hours or before shutdown
+```
+
+### Benefits
+
+1. **Performance Validation:** Verify battery meets expected runtime
+2. **Capacity Estimation:** Calculate actual mAh delivered based on discharge curve
+3. **Health Monitoring:** Compare discharge patterns over multiple cycles
+4. **Field Data:** Real-world performance under RF transmission load
+5. **Predictive Maintenance:** Identify batteries that discharge prematurely
 
 ---
 
@@ -508,6 +932,118 @@ const char* findMorseCode(char c) {
 ```
 
 **Note:** This is a blocking implementation. For production, refactor to non-blocking state machine.
+
+---
+
+## Required Libraries
+
+Prefer these libraries for Teensy 4.1:
+
+- **Audio Library** (native Teensy) - Audio playback and synthesis
+- **Snooze Library** - Power management
+- **TimeLib** (built-in Teensy) - RTC functions and date/time management
+- **SD Library** (built-in) - File access and logging
+- **Watchdog_t4** - Safety interlocks
+
+**Installation:** Arduino IDE → Tools → Manage Libraries → Search for library name
+
+---
+
+## Real-Time Clock (RTC) Integration
+
+### TimeLib Setup
+
+The Teensy 4.1 has a built-in battery-backed RTC for accurate timekeeping.
+
+```cpp
+#include <TimeLib.h>
+
+// Get time from Teensy's hardware RTC
+time_t getTeensy3Time() {
+  return Teensy3Clock.get();
+}
+
+void setup() {
+  Serial.begin(115200);
+  
+  // Sync TimeLib with hardware RTC
+  setSyncProvider(getTeensy3Time);
+  
+  // Check if time is set
+  if (timeStatus() != timeSet) {
+    Serial.println("Unable to sync with RTC");
+  } else {
+    Serial.println("RTC synchronized");
+  }
+}
+```
+
+### Setting the RTC
+
+**Method 1: Arduino IDE (Recommended)**
+1. Connect Teensy 4.1
+2. Go to `Tools → Set Time`
+3. Click OK to set RTC to computer's current time
+4. RTC maintains time even after power off (with backup battery)
+
+**Method 2: Programmatically**
+```cpp
+void setup() {
+  // Set specific date/time: Feb 14, 2026 at 2:30 PM
+  setTime(14, 30, 0, 14, 2, 2026);  // hour, min, sec, day, month, year
+  Teensy3Clock.set(now());           // Write to hardware RTC
+}
+```
+
+### Timestamp Formatting
+
+```cpp
+// ISO 8601 format: [YYYY-MM-DD HH:MM:SS]
+void printTimestamp() {
+  char timestamp[30];
+  sprintf(timestamp, "[%04d-%02d-%02d %02d:%02d:%02d]", 
+          year(), month(), day(), hour(), minute(), second());
+  Serial.print(timestamp);
+}
+
+// Human-readable format: Feb 14, 2026 14:30:00
+void printDateTime() {
+  const char* monthNames[] = {
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+  };
+  
+  Serial.print(monthNames[month() - 1]);
+  Serial.print(" ");
+  Serial.print(day());
+  Serial.print(", ");
+  Serial.print(year());
+  Serial.print(" ");
+  
+  if (hour() < 10) Serial.print("0");
+  Serial.print(hour());
+  Serial.print(":");
+  
+  if (minute() < 10) Serial.print("0");
+  Serial.print(minute());
+  Serial.print(":");
+  
+  if (second() < 10) Serial.print("0");
+  Serial.print(second());
+}
+```
+
+### Example Usage
+
+```cpp
+void logEvent(const char* event) {
+  printTimestamp();
+  Serial.print(" ");
+  Serial.println(event);
+}
+
+// Output: [2026-02-14 14:30:05] Battery LOW warning
+```
 
 ---
 
@@ -902,129 +1438,6 @@ Before marking any feature complete:
 - [ ] FCC ID requirement met (every 10 minutes)
 - [ ] SD card logging functional (writes on state changes, survives SD card removal)
 - [ ] SD card handling graceful (continues without SD if not needed)
-
----
-
-## Required Libraries
-
-Prefer these libraries for Teensy 4.1:
-
-- **Audio Library** (native Teensy) - Audio playback and synthesis
-- **Snooze Library** - Power management
-- **TimeLib** - RTC functions if needed
-- **SD Library** (built-in) - File access and logging
-- **Watchdog_t4** - Safety interlocks
-
-**Installation:** Arduino IDE → Tools → Manage Libraries → Search for library name
-
----
-
-## SD Card Logging
-
-### Overview
-
-Use the **standard Arduino SD library** (included with Teensy) for simple, reliable logging:
-
-- ✅ Works with audio files on the same SD card
-- ✅ No external libraries needed
-- ✅ Simple and well-documented
-- ✅ Graceful degradation if SD card fails
-
-### Implementation Pattern
-
-See `battery_monitor_test/battery_monitor_test.ino` for complete working example.
-
-**Key principles:**
-1. Open file, write data, close file (reliability over performance)
-2. Check `loggingEnabled` flag before every write
-3. Continue normal operation if SD card unavailable
-4. Use simple timestamp format: `millis()` or formatted duration
-
-```cpp
-#include <SD.h>
-
-File logFile;
-bool loggingEnabled = false;
-
-void setup() {
-  Serial.begin(115200);
-  
-  // Initialize SD card
-  if (SD.begin(BUILTIN_SDCARD)) {
-    loggingEnabled = true;
-  }
-}
-
-// Helper function to log to both Serial and SD card
-void logPrintln(const char* str) {
-  Serial.println(str);
-  if (loggingEnabled) {
-    logFile = SD.open("FOX.LOG", FILE_WRITE);
-    if (logFile) {
-      logFile.println(str);
-      logFile.close();  // Close after each write for reliability
-    }
-  }
-}
-```
-
-**Log file naming:**
-- `BAT.LOG` - Battery monitor logs
-- `FOX.LOG` - Main controller logs
-- `ERROR.LOG` - Error/diagnostic logs
-
-### Simplified Logging (Mirror Serial Output)
-
-The simplest approach: whatever goes to Serial Monitor also goes to SD card.
-
-See `battery_monitor_test.ino` lines 156-231 for complete implementation of dual-output logging functions.
-
-### Best Practices
-
-**1. Close Files After Each Write**
-```cpp
-logFile = SD.open("FOX.LOG", FILE_WRITE);
-if (logFile) {
-  logFile.println("message");
-  logFile.close();  // Important for data integrity!
-}
-```
-
-**2. Check Return Values**
-```cpp
-if (!SD.begin(BUILTIN_SDCARD)) {
-  Serial.println("SD card failed");
-  loggingEnabled = false;
-}
-```
-
-**3. Keep It Simple**
-```cpp
-// Don't over-engineer - simple append is reliable
-logFile = SD.open("FOX.LOG", FILE_WRITE);
-logFile.println(message);
-logFile.close();
-```
-
-**4. Coexist with Audio Files**
-```cpp
-// This approach works fine with WAV files on the same SD card
-SD.open("FOX.LOG", FILE_WRITE);    // Logging
-SD.open("FOXID.WAV", FILE_READ);   // Audio playback - no conflicts!
-```
-
-### Advantages of This Approach
-
-| Feature | Standard SD Library | TinySDLogger | Custom Logger |
-|---------|---------------------|--------------|---------------|
-| **Works with audio files** | ✅ Yes | ❌ No (corrupts!) | ✅ Yes |
-| **Built-in to Teensy** | ✅ Yes | ❌ No | ❌ No |
-| **Simple API** | ✅ Yes | ✅ Yes | ⚠️ Complex |
-| **Well tested** | ✅ Yes | ⚠️ Limited | ❌ Untested |
-| **Log rotation** | ⚠️ Manual | ❌ No | ✅ Auto |
-| **Memory usage** | ⚠️ ~600 bytes | ✅ ~100 bytes | ⚠️ Varies |
-
-**For this project, the standard SD library is the best choice** - it's simple, reliable, and works with audio files.
 
 ---
 
