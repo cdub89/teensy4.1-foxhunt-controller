@@ -1,7 +1,7 @@
 /*
  * WX7V Foxhunt Controller - Battery Monitor Test Script
  * 
- * VERSION: 1.4
+ * VERSION: 1.5
  * 
  * PURPOSE: Standalone test for battery voltage monitoring circuit
  * 
@@ -41,12 +41,13 @@
  * v1.2 - Added runtime tracking and state transition logging
  * v1.3 - Added Morse code LED patterns and reduced serial output to 5-min intervals
  * v1.4 - Fixed voltage thresholds (GOOD now 14.0V vs 14.8V for realistic LiPo monitoring)
+ * v1.5 - Enhanced Morse code with multi-letter messages (SG, OL, OV, SOS)
  */
 
 // ============================================================================
 // VERSION INFORMATION
 // ============================================================================
-const char* VERSION = "1.4";
+const char* VERSION = "1.8";
 const char* VERSION_DATE = "2026-02-14";
 
 // ============================================================================
@@ -84,12 +85,14 @@ const unsigned long SAMPLE_INTERVAL = 500;      // Time between readings (ms)
 const unsigned long DISPLAY_INTERVAL = 300000;  // Display update interval (5 minutes)
 
 // ============================================================================
-// MORSE CODE CONFIGURATION
+// MORSE CODE CONFIGURATION (Slower speed for LED readability)
 // ============================================================================
-const int MORSE_DOT_DURATION = 200;             // Duration of a dot (ms)
-const int MORSE_DASH_DURATION = 600;            // Duration of a dash (3x dot)
-const int MORSE_ELEMENT_SPACE = 200;            // Space between dots/dashes
-const int MORSE_LETTER_SPACE = 1400;            // Space between letter repeats (7x dot)
+// Optimized for visual LED reading (~6 WPM equivalent)
+const int MORSE_DOT_DURATION = 200;             // Duration of a dot (ms) - 1 unit
+const int MORSE_DASH_DURATION = 600;            // Duration of a dash (3x dot) - 3 units
+const int MORSE_ELEMENT_SPACE = 200;            // Space between dots/dashes within a letter - 1 unit
+const int MORSE_LETTER_SPACE = 600;             // Space between letters (3x dot) - 3 units
+const int MORSE_WORD_SPACE = 1400;              // Space between words/message repeats (7x dot) - 7 units
 
 // ============================================================================
 // GLOBAL VARIABLES
@@ -183,11 +186,11 @@ void setup() {
   Serial.println("V");
   Serial.println();
   Serial.println("Morse Code LED Patterns:");
-  Serial.println("  G (--.  ) = GOOD");
-  Serial.println("  L (.-..) = LOW");
-  Serial.println("  V (...-) = VERY LOW");
-  Serial.println("  S (...  ) = SHUTDOWN");
-  Serial.println("  C (-.-.) = CRITICAL");
+  Serial.println("  SG  (... --. ) = STATUS GOOD");
+  Serial.println("  OL  (--- .-..) = OVERLOAD/LOW");
+  Serial.println("  OV  (--- ...-) = OVERLOAD/VERY LOW");
+  Serial.println("  SOSS(SOS ...) = EMERGENCY/SHUTDOWN");
+  Serial.println("  SOSC(SOS -.-.) = EMERGENCY/CRITICAL");
   Serial.println();
   Serial.println("Battery Voltage Thresholds (4S LiPo):");
   Serial.print("  FULL:          ");
@@ -221,12 +224,20 @@ void setup() {
   lastSampleTime = millis();
   lastDisplayTime = millis();  // Initialize display timer
   
-  // Initialize Morse code for GOOD state
+  // Initialize Morse code for GOOD state (will be updated after first reading)
   currentMorsePattern = getMorsePattern(STATE_GOOD);
   morseLastChange = millis();
   
   Serial.println(" Runtime | ADC  | Pin A9  | Battery | Cell Avg | Status");
   Serial.println("---------+------+---------+---------+----------+-------------------");
+  
+  // Display initial battery reading immediately
+  float initialVoltage = readBatteryVoltage();
+  updateBatteryState(initialVoltage);
+  displayVoltageReading(initialVoltage);
+  
+  // Update Morse pattern based on actual initial state
+  currentMorsePattern = getMorsePattern(currentState);
 }
 
 // ============================================================================
@@ -538,26 +549,33 @@ void displayVoltageReading(float batteryVoltage) {
 // GET MORSE PATTERN FOR BATTERY STATE
 // ============================================================================
 String getMorsePattern(BatteryState state) {
-  // Morse code patterns using dots (.) and dashes (-)
-  // G: --.  (Good >= 14.0V / 3.50V per cell)
-  // L: .-.. (Low >= 13.6V / 3.40V per cell)
-  // V: ...- (Very Low >= 12.8V / 3.20V per cell)
-  // S: ... (Shutdown >= 12.0V / 3.00V per cell)
-  // C: -.-. (Critical < 12.0V / < 3.00V per cell)
+  // Multi-letter Morse code patterns with status prefixes
+  // Use space character to separate letters (handled specially in LED update)
+  //
+  // GOOD states: "S" (Status) + letter
+  //   SG: ... --.     = STATUS GOOD
+  //
+  // Warning states: "O" (Overload/Oh-no) + letter  
+  //   OL: --- .-..    = OVERLOAD LOW
+  //   OV: --- ...-    = OVERLOAD VERY LOW
+  //
+  // Emergency states: "SOS" + letter
+  //   SOS S: ... --- ... ...     = SOS SHUTDOWN
+  //   SOS C: ... --- ... -.-.    = SOS CRITICAL
   
   switch (state) {
     case STATE_GOOD:
-      return "--.";        // G for GOOD
+      return "... --.";          // S G = STATUS GOOD
     case STATE_LOW:
-      return ".-..";       // L for LOW
+      return "--- .-..";          // O L = OVERLOAD LOW
     case STATE_VERY_LOW:
-      return "...-";       // V for VERY LOW
+      return "--- ...-";          // O V = OVERLOAD VERY LOW
     case STATE_SHUTDOWN:
-      return "...";        // S for SHUTDOWN
+      return "... --- ... ...";   // SOS S = EMERGENCY SHUTDOWN
     case STATE_CRITICAL:
-      return "-.-.";       // C for CRITICAL
+      return "... --- ... -.-.";  // SOS C = EMERGENCY CRITICAL
     default:
-      return "........";   // Error indication (8 dots)
+      return "........";           // Error indication (8 dots)
   }
 }
 
@@ -569,8 +587,8 @@ void updateMorseLED() {
   
   // Check if pattern is complete
   if (morseIndex >= currentMorsePattern.length()) {
-    // Pattern complete, wait for letter space, then restart
-    if (!morseElementActive && (currentTime - morseLastChange >= MORSE_LETTER_SPACE)) {
+    // Pattern complete, wait for word space, then restart
+    if (!morseElementActive && (currentTime - morseLastChange >= MORSE_WORD_SPACE)) {
       morseIndex = 0;  // Restart pattern
       morseElementActive = false;
       morseLastChange = currentTime;
@@ -578,9 +596,20 @@ void updateMorseLED() {
     return;
   }
   
-  // Get current element (dot or dash)
+  // Get current character (dot, dash, or space)
   char element = currentMorsePattern[morseIndex];
   
+  // Handle space character (letter separator)
+  if (element == ' ') {
+    if (!morseElementActive && (currentTime - morseLastChange >= MORSE_LETTER_SPACE)) {
+      // Letter space complete, move to next character
+      morseIndex++;
+      morseLastChange = currentTime;
+    }
+    return;
+  }
+  
+  // Handle dot or dash
   if (morseElementActive) {
     // LED is currently ON - check if element duration is complete
     unsigned long elementDuration = (element == '.') ? MORSE_DOT_DURATION : MORSE_DASH_DURATION;
@@ -595,8 +624,11 @@ void updateMorseLED() {
   } else {
     // LED is currently OFF - check if we should start next element
     
-    // For the first element (index 0), start immediately
-    if (morseIndex == 0 || (currentTime - morseLastChange >= MORSE_ELEMENT_SPACE)) {
+    // For the first element (index 0) or right after a space, start immediately
+    bool isFirstElement = (morseIndex == 0);
+    bool afterSpace = (morseIndex > 0 && currentMorsePattern[morseIndex - 1] == ' ');
+    
+    if (isFirstElement || afterSpace || (currentTime - morseLastChange >= MORSE_ELEMENT_SPACE)) {
       // Turn LED ON for current element
       digitalWrite(LED_PIN, HIGH);
       morseElementActive = true;
@@ -643,11 +675,11 @@ void updateStatusLED(float batteryVoltage) {
  * - Set to "Both NL & CR" or "Newline" for proper formatting
  * - Output updates every 5 minutes (or immediately on state change)
  * - Observe LED on Teensy for continuous Morse code status indication:
- *     * G (--.)    = GOOD (>= 14.8V)
- *     * L (.-..)   = LOW (>= 13.6V)
- *     * V (...-)   = VERY LOW (>= 12.8V)
- *     * S (...)    = SHUTDOWN (>= 12.0V)
- *     * C (-.-.)   = CRITICAL (< 12.0V)
+ *     * SG  (... --. )      = STATUS GOOD (>= 14.0V)
+ *     * OL  (--- .-..)      = OVERLOAD LOW (>= 13.6V)
+ *     * OV  (--- ...-)      = OVERLOAD VERY LOW (>= 12.8V)
+ *     * SOSS (... --- ... ...) = SOS SHUTDOWN (>= 12.0V)
+ *     * SOSC (... --- ... -.-.) = SOS CRITICAL (< 12.0V)
  * 
  * RUNTIME TRACKING:
  * - Start time is recorded at startup
@@ -663,9 +695,12 @@ void updateStatusLED(float batteryVoltage) {
  * - LED provides continuous Morse code feedback between display updates
  * 
  * MORSE CODE TIMING:
- * - Dot: 200ms
- * - Dash: 600ms (3x dot)
- * - Element spacing: 200ms
- * - Letter repeat: 1400ms (7x dot)
- * - Based on standard International Morse Code timing
+ * - Speed: ~6 WPM (optimized for visual LED reading)
+ * - Dot: 200ms (1 unit)
+ * - Dash: 600ms (3 units)
+ * - Element spacing: 200ms (1 unit - between dots/dashes within a letter)
+ * - Letter spacing: 600ms (3 units - between letters in a message)
+ * - Word/message spacing: 1400ms (7 units - before repeating message)
+ * - Based on standard International Morse Code timing ratios
+ * - Multi-letter messages provide clear status context
  */
