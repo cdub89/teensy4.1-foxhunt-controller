@@ -4,130 +4,183 @@
 [![Amateur Radio](https://img.shields.io/badge/Amateur%20Radio-FCC%20Part%2097-blue.svg)](https://www.fcc.gov/wireless/bureau-divisions/mobility-division/amateur-radio-service)
 [![Platform](https://img.shields.io/badge/Platform-Teensy%204.1-orange.svg)](https://www.pjrc.com/store/teensy41.html)
 
-A robust, feature-rich radio "fox" (hidden transmitter) controller for amateur radio foxhunt events. Built on the Teensy 4.1 platform with support for both Morse code CW identification and WAV file audio playback.
+A robust radio "fox" (hidden transmitter) controller for amateur radio foxhunt events. Built on the Teensy 4.1 platform with support for both Morse code CW identification and WAV file audio playback using a Baofeng UV-5R radio.
+
+---
 
 ## 🦊 What is a Foxhunt?
 
 Amateur radio foxhunting (also called radio direction finding or T-hunting) is a competitive activity where participants use radio direction-finding equipment to locate hidden transmitters called "foxes." This project provides an automated, reliable controller for those hidden transmitters.
 
-## ✨ Features
+---
 
-### Current Implementation (v1.0.0 - PRODUCTION READY)
-- ✅ **Non-Blocking Architecture** - State machine design for concurrent operations
-- ✅ **Morse Code CW Transmission** - Automated callsign identification with configurable WPM
-- ✅ **WAV File Playback** - Voice announcements and taunts from SD card
-- ✅ **Baofeng UV-5R Integration** - PTT control with proper timing (1000ms pre-roll)
-- ✅ **Dual-Threshold Battery Watchdog** - Soft warning (13.6V) + hard shutdown (12.8V)
-- ✅ **Watchdog Timer** - 30-second timeout protects against stuck PTT
-- ✅ **Safety Interlocks** - Multiple fail-safe mechanisms
-- ✅ **Status LED Indicators** - Visual feedback (heartbeat, warning, SOS)
-- ✅ **Automatic Mode Switching** - Alternates between Morse and audio
+## ✨ Project Goals
 
-### Planned Features (Future Development)
-- 🔄 **Deep Sleep Mode** - Extended battery life between transmissions (Phase 3)
-- 🎲 **Randomized Audio Selection** - Random taunt file selection (Phase 4)
-- 📡 **DTMF Remote Control** - Command the fox via radio tones (Phase 4)
-- 🔇 **VOX Activation** - Silent operation until "called" by hunters (Phase 4)
-- 📊 **Duty Cycle Management** - Prevent radio overheating (Phase 3)
-- 📝 **SD Card Logging** - Complete event logging and diagnostics (Phase 5)
-- ⚙️ **Configuration System** - SD card based config file (Phase 5)
+Build a production-ready fox controller with:
 
-See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the complete development roadmap.
+- **Non-blocking architecture** - State machine design for concurrent operations
+- **Morse code CW transmission** - Automated callsign identification
+- **WAV file playback** - Voice announcements and taunts from SD card
+- **Safety-first design** - Watchdog timer, battery protection, PTT timeout
+- **Baofeng UV-5R integration** - Proper PTT timing (1000ms pre-roll, 500ms tail)
+- **Battery watchdog system** - Dual-threshold protection (soft warning + hard shutdown)
+- **Extended battery life** - Deep sleep between transmissions
+- **Field-proven reliability** - 24+ hour continuous operation
+
+---
+
+## 📋 Current Status
+
+### Phase 1: Foundation ✅ COMPLETE
+
+Two working reference implementations demonstrating core functionality:
+
+**1. Morse Code Controller** (`Morse Code Controller.mdc`)
+- Blocking implementation for CW identification
+- Standard ITU Morse timing
+- Configurable WPM and tone frequency
+- Pin 2 PTT control, Pin 12 audio output
+- 1000ms pre-roll, 500ms tail timing
+
+**2. Audio Controller** (`Audio Controller Code.mdc`)
+- Blocking implementation for WAV playback
+- Teensy Audio Library integration
+- SD card support (built-in Teensy 4.1 slot)
+- MQS audio output on Pin 12
+- Automatic playback completion detection
+
+These reference implementations prove the concept and provide working code patterns for the production system.
+
+### Phase 2: Production System (Next)
+
+Convert blocking reference code to production-ready non-blocking architecture:
+
+**Core Features:**
+- State machine framework (non-blocking)
+- Concurrent operations (LED, battery monitoring, timing)
+- Watchdog timer protection (30s timeout)
+- Dual-threshold battery watchdog:
+  - Soft warning at 13.6V (3.4V per cell)
+  - Hard shutdown at 12.8V (3.2V per cell)
+- Alternating Morse/Audio transmission
+- Comprehensive error handling
+
+**Implementation Approach:**
+1. Create state machine with states: IDLE, PTT_PREROLL, TRANSMITTING, PTT_TAIL
+2. Replace all `delay()` calls with `millis()` timing
+3. Implement concurrent LED heartbeat and battery monitoring
+4. Add safety interlocks (watchdog, battery protection, PTT timeout)
+5. Integrate battery watchdog system from specifications
+
+### Phase 3: Advanced Features (Future)
+
+After production system is stable:
+
+- **Power management** - Deep sleep during idle periods (~5mA vs ~100mA)
+- **Duty cycle management** - Prevent radio overheating (20% max)
+- **Randomized audio** - Multiple taunt files with random selection
+- **Logging system** - SD card event logging for diagnostics
+- **Configuration system** - SD card based config file
+- **Remote control** - DTMF commands (optional hardware)
+- **VOX activation** - Silent operation until "called" (optional)
+
+---
 
 ## 🔧 Hardware Requirements
 
 ### Core Components
-- **Teensy 4.1** microcontroller (Cortex-M7 @ 600MHz)
-- **Baofeng UV-5R** radio (or similar with 2.5mm/3.5mm Kenwood connector)
-- **2N2222 NPN transistor** (for PTT control)
-- **14.8V 4S LiPo battery** (5200mAh recommended)
-- **Dual buck converters** (8.0V for radio, 5.0V for Teensy)
+
+- **Teensy 4.1** microcontroller (Cortex-M7 @ 600MHz, underclocked to 24MHz)
+- **Baofeng UV-5R** radio (set to LOW power: 1W)
+- **2N2222 NPN transistor** (PTT control)
+- **14.8V 4S LiPo battery** (SOCOKIN 5200mAh recommended)
+- **Dual buck converters:**
+  - Buck A: 8.0V - 12.0V for radio (via battery eliminator)
+  - Buck B: 5.0V for Teensy VIN
 - **MicroSD card** (8GB+, FAT32 formatted)
+- **5A inline fuse** (XT60 main battery lead)
 
-### Supporting Components
-- Resistors: 1kΩ (audio filter), 10kΩ (voltage divider R1), 2.2kΩ (voltage divider R2)
-- Capacitors: 10µF (audio coupling), 100nF (voltage divider filter)
-- 5A inline fuse (XT60 connector)
-- 10kΩ linear potentiometer (audio level control)
+### Audio Filter Circuit (REQUIRED)
 
-### Optional Components (Future)
-- **MT8870 DTMF decoder** (for remote control - Phase 4)
-- **DS3231 RTC module** (for accurate timestamps - Phase 5)
+**Components:**
+- 1kΩ resistor (low-pass filter with capacitor)
+- 10µF electrolytic capacitor (DC blocking)
+- 10kΩ linear potentiometer (volume control)
 
-Complete Bill of Materials: See [WX7V Foxhunt Controller Project Specification.md](WX7V%20Foxhunt%20Controller%20Project%20Specification.md)
+**Purpose:** Smooths MQS PWM output and prevents radio distortion
+
+### Battery Monitor Circuit (CRITICAL)
+
+**Components:**
+- 10kΩ resistor (R1) - Battery+ to Pin A9
+- 2.0kΩ resistor (R2) - Pin A9 to Ground
+- 100nF ceramic capacitor (noise filter, parallel with R2)
+
+**Purpose:** Real-time voltage monitoring for dual-threshold battery protection
+
+### RF Suppression (FIELD-PROVEN)
+
+**Components:**
+- 0.1µF ceramic capacitor (104) - soldered across Buck A output
+- 3× snap-on ferrite cores:
+  - Two (2) on radio power lines
+  - One (1) on Teensy power lines
+
+**Purpose:** Prevents RF coupling during 1W transmission (discovered during field testing)
+
+### Complete Documentation
+
+- **[Hardware_Reference.md](Hardware_Reference.md)** - Complete wiring diagrams, pinout, voltage divider calculations, grounding architecture, troubleshooting
+- **[Software_Reference.md](Software_Reference.md)** - Programming requirements, state machine examples, battery protection code, timing specifications
+
+---
 
 ## 📋 Pin Configuration
 
-| Function | Teensy Pin | Notes |
-|----------|-----------|-------|
-| **PTT Control** | Pin 2 | Digital Output → 1kΩ resistor → 2N2222 base |
+| Function | Teensy Pin | Connection |
+|----------|-----------|------------|
+| **PTT Control** | Pin 2 | Digital Output → 1kΩ → 2N2222 base |
 | **Audio Out** | Pin 12 | MQS → 1kΩ → 10µF cap → 10kΩ pot → Radio mic |
-| **Status LED** | Pin 13 | Built-in LED (heartbeat/TX/SOS indicator) |
-| **Battery Monitor** | Pin A9 | Via voltage divider (10kΩ + 2.2kΩ) |
-| **Power In** | VIN | 5.0V from buck converter |
-| **Ground** | GND | Common ground with radio and converters |
+| **Status LED** | Pin 13 | Built-in LED (heartbeat/TX/warning/SOS) |
+| **Battery Monitor** | Pin A9 | Via voltage divider (10kΩ + 2.0kΩ + 100nF cap) |
+| **Power In** | VIN | 5.0V from buck converter B |
+| **Ground** | GND | Star ground configuration (all grounds meet at ONE point) |
 
-## 🚀 Quick Start
+---
 
-### 1. Software Setup
+## 🚀 Getting Started
 
-**Open** `FoxhuntController.ino` in Arduino IDE with Teensyduino installed.
+### 1. Review Documentation
 
-**Required libraries** (install via Arduino Library Manager or Teensyduino):
-- **Audio Library** (included with Teensyduino)
-- **SD Library** (Arduino core)
-- **Snooze Library** (Teensy low power)
-- **Watchdog_t4** (Teensy 4.x watchdog timer)
+**Start here:**
+1. **[Hardware_Reference.md](Hardware_Reference.md)** - Complete hardware specifications
+2. **[Software_Reference.md](Software_Reference.md)** - Programming requirements and examples
 
-**Configure your callsign:**
-```cpp
-// Edit line 35 in FoxhuntController.ino
-const char* CALLSIGN = "WX7V FOX";  // Change to YOUR callsign
-```
+**Reference implementations:**
+- `Morse Code Controller.mdc` - Working Morse code example
+- `Audio Controller Code.mdc` - Working audio playback example
 
-### 2. Hardware Assembly
+### 2. Build Hardware
 
-1. **PTT Circuit:**
-   ```
-   Teensy Pin 2 → 1kΩ resistor → 2N2222 base
-   2N2222 collector → Radio PTT pin (tip of 2.5mm plug)
-   2N2222 emitter → Ground
-   ```
+Follow wiring diagrams in `Hardware_Reference.md`:
 
-2. **Audio Circuit:** ⚠️ **1kΩ resistor is REQUIRED for clean audio**
-   ```
-   Teensy Pin 12 → 1kΩ resistor → 10µF capacitor (+) → 10kΩ pot (left pin)
-   10kΩ pot (center pin) → Radio mic (ring of 2.5mm plug)
-   10kΩ pot (right pin) → Ground
-   ```
+1. **Power system** - Dual buck converters with RF suppression
+2. **PTT circuit** - 2N2222 transistor with 1kΩ base resistor
+3. **Audio circuit** - 1kΩ resistor + 10µF cap + 10kΩ pot
+4. **Battery monitor** - Voltage divider on Pin A9
+5. **Star ground** - All grounds meet at one common point
 
-3. **Battery Monitor Circuit:**
-   ```
-   Battery (+) → 10kΩ (R1) → Pin A9 → 2.2kΩ (R2) → Ground
-                            → 100nF cap → Ground (noise filter)
-   ```
-
-4. **Power:**
-   ```
-   Battery (14.8V) → Buck A (8.0V) → Radio battery eliminator
-                   → Buck B (5.0V) → Teensy VIN
-   ```
-
-See complete wiring diagrams and connection details in:
-- **[Hardware Reference](Teensy4%20Fox%20Hardware%20Reference.md)** - Wiring summary, pigtail pinout, audio filtering
-- **[Project Specification](WX7V%20Foxhunt%20Controller%20Project%20Specification.md)** - Full technical specifications
+**Critical:** Install RF suppression components (ferrites + ceramic cap) or system may reboot during transmission.
 
 ### 3. Prepare SD Card
 
-Format microSD card as FAT32 and add audio files:
+Format microSD card as FAT32 and add:
 
 ```
 SD_CARD/
-├── FOXID.WAV       # Your callsign identification
-├── TAUNT01.WAV     # Optional taunt files
-├── TAUNT02.WAV
-├── LOWBATT.WAV     # Low battery warning
-└── CONFIG.TXT      # Configuration file (future)
+├── FOXID.WAV       # Your callsign identification (required)
+├── LOWBATT.WAV     # Low battery warning (optional)
+└── TAUNT01.WAV     # Optional taunt files
 ```
 
 **Audio file specs:**
@@ -136,163 +189,165 @@ SD_CARD/
 - Mono or stereo
 - Keep files < 10 seconds for reasonable duty cycle
 
-### 4. Configure & Upload
+### 4. Test Reference Implementations
 
-**Open** `FoxhuntController.ino` and configure:
+**Start with simple blocking code:**
 
-```cpp
-// Line 35: Change to YOUR callsign
-const char* CALLSIGN = "WX7V FOX";
+1. Upload `Morse Code Controller.mdc` to test PTT and Morse generation
+2. Upload `Audio Controller Code.mdc` to test SD card and audio playback
+3. Verify timing, audio quality, and battery voltage readings
+4. Adjust potentiometer for clean audio (not distorted)
 
-// Line 41: Adjust Morse speed if desired
-const int MORSE_WPM = 12;  // 12 words per minute
+### 5. Calibrate Battery Monitor
 
-// Line 46: Adjust transmission interval
-const long TX_INTERVAL = 60000;  // 60 seconds
+**Critical for battery protection:**
 
-// Lines 56-57: Battery thresholds (verify with your setup)
-const float SOFT_WARNING_THRESHOLD = 13.6;   // Low battery warning
-const float HARD_SHUTDOWN_THRESHOLD = 12.8;  // Emergency shutdown
-```
+1. Connect fully charged battery (16.8V)
+2. Measure voltage at Pin A9 with multimeter
+3. Calculate ratio: `actual_ratio = 16.8V / measured_voltage`
+4. Update `VOLTAGE_DIVIDER_RATIO` constant in code
+5. Test at 14.8V and 13.6V to verify accuracy
 
-**Select Board:** Tools → Board → Teensy 4.1  
-**Upload** to Teensy via Arduino IDE.
+See `Software_Reference.md` for complete calibration procedure.
 
-**See:** [FoxhuntController_README.md](FoxhuntController_README.md) for detailed instructions.
-
-### 5. Test Before Deployment
-
-**Pre-flight checklist:**
-- [ ] Battery fully charged (16.8V)
-- [ ] SD card has `FOXID.WAV` (and optionally `LOWBATT.WAV`)
-- [ ] Callsign configured in code
-- [ ] Audio filter installed (1kΩ + 10µF + 10kΩ pot)
-- [ ] Battery voltage divider installed (10kΩ + 2.2kΩ + 100nF)
-- [ ] Battery voltage reading verified with multimeter
-- [ ] Radio set to correct frequency and CTCSS
-- [ ] Antenna connected
-- [ ] Volume adjusted (test with speaker)
-- [ ] PTT timing verified (1s pre-roll)
-- [ ] Audio levels not distorted
-- [ ] Watchdog timer tested (optional)
-
-**Test procedure:**
-1. Power on with monitoring radio nearby
-2. Verify LED illuminates during transmission
-3. Confirm audio is clear and intelligible
-4. Check transmission timing accuracy
-5. Monitor for 10+ transmissions before field deployment
-
-## 📚 Documentation
-
-- **[Project Specification](WX7V%20Foxhunt%20Controller%20Project%20Specification.md)** - Complete hardware specs, features, and technical details
-- **[Hardware Reference](Teensy4%20Fox%20Hardware%20Reference.md)** - Wiring summary, pigtail pinout, audio filtering, parts checklist
-- **[Implementation Plan](IMPLEMENTATION_PLAN.md)** - Phased development roadmap with time estimates
-- **[FoxhuntController.ino](FoxhuntController.ino)** - Production controller code (v1.0.0)
-- **[FoxhuntController README](FoxhuntController_README.md)** - Quick start guide for the controller
-- **[Morse Code Controller](Morse%20Code%20Controller.mdc)** - Simple CW transmission reference code
-- **[Audio Controller](Audio%20Controller%20Code.mdc)** - WAV file playback reference code
-- **[Cursor Rules](.cursorrules)** - AI-assisted development guidelines
+---
 
 ## 🔒 Safety Features
 
-This project implements multiple safety mechanisms:
+This is **safety-critical code** - a stuck PTT can drain batteries, overheat equipment, or cause interference.
 
-- **Watchdog Timer** - 30-second timeout with automatic PTT release
-- **Dual-Threshold Battery Watchdog:**
-  - **Soft Warning (13.6V)** - Plays "LOW BATTERY" every 5 cycles
-  - **Hard Shutdown (12.8V)** - Permanently disables PTT, enters SOS mode
-- **Transmission Timeout** - 30-second maximum per transmission
-- **Hysteresis Protection** - Prevents battery warning spam
-- **Emergency PTT Release** - Multiple fail-safe mechanisms
-- **Non-blocking Architecture** - Responsive to all safety checks
+### Mandatory Safety Systems
 
-⚠️ **Important:** A stuck PTT can drain batteries, overheat equipment, and cause harmful interference. The battery hard shutdown at 12.8V prevents LiPo damage and requires power cycle to reset.
+**1. Watchdog Timer**
+- 30-second timeout with automatic PTT release
+- Resets Teensy if code hangs
+- Prevents stuck PTT condition
+
+**2. Dual-Threshold Battery Watchdog**
+- **Soft Warning (13.6V / 3.4V per cell):**
+  - Plays "LOW BATTERY" warning
+  - LED changes to rapid blink (200ms)
+  - Continues operation (you have time to finish hunt)
+  - Clears at 14.0V (hysteresis prevents spam)
+  
+- **Hard Shutdown (12.8V / 3.2V per cell):**
+  - **IMMEDIATE** PTT disable (set to INPUT mode)
+  - SOS LED pattern (...---...)
+  - **PERMANENT** until power cycle
+  - Protects LiPo from over-discharge damage
+
+**3. PTT Timeout**
+- Maximum 30 seconds per transmission
+- Emergency PTT release on timeout
+- Multiple fail-safe mechanisms
+
+**4. Non-Blocking Architecture**
+- Responsive to all safety checks
+- Concurrent monitoring (battery, watchdog, timing)
+- No `delay()` calls in production code
+
+**Why 12.8V hard shutdown?** Below 3.2V per cell, LiPo batteries can be permanently damaged. This is a hard safety limit.
+
+---
 
 ## 📊 Performance Characteristics
 
+### Power Configuration
+
+**CPU Speed:** 24MHz (underclocked from 600MHz)
+- Reduces idle current from ~100mA to ~20-30mA
+- Extends battery life by 70-80%
+- Still provides ample processing power
+- Set in Arduino IDE: Tools → CPU Speed → 24 MHz
+
+**Radio Power:** LOW (1W)
+- Reduces current from ~1.5A to ~0.35-0.4A (75% savings)
+- Minimizes RF interference with Teensy
+- Sufficient range for typical foxhunts (0.5-2 miles)
+- Set via radio menu: Menu → 2 (TXP) → LOW
+
+**Combined savings enable >24 hour continuous operation**
+
+### Expected Performance
+
 | Metric | Value | Notes |
 |--------|-------|-------|
-| **Transmission Accuracy** | ±2 seconds | Over 24-hour period |
-| **Battery Life** | 18-20 hours | 60s interval, 5s TX, 5200mAh pack |
-| **PTT Pre-roll** | 1000ms | Required for Baofeng squelch |
+| **Battery Life** | >24 hours | 5200mAh pack @ 60s interval, 5s TX |
+| **PTT Pre-roll** | 1000ms | Required for Baofeng squelch opening |
 | **PTT Tail** | 500ms | After transmission ends |
-| **Idle Current** | ~100mA | Teensy active, no transmission |
-| **TX Current** | ~150-180mA | Teensy only (radio is separate rail) |
-| **Deep Sleep Current** | ~5mA | With Snooze library (future) |
-| **Max Duty Cycle** | 20% | Recommended for continuous operation |
+| **Duty Cycle** | 8.3% | 5s TX / 60s interval (safe for continuous operation) |
+| **Idle Current** | 20-30mA | @ 24MHz CPU, no transmission |
+| **TX Current** | 40-80mA | Teensy only (radio on separate 8-12V rail) |
+| **Deep Sleep** | ~5mA | With Snooze library (future implementation) |
 
-## 🛠️ Development
+### Battery Voltage Monitoring
 
-### Current Status
-**Version 1.0.0 - PRODUCTION READY** ✅
-- Non-blocking state machine architecture ✅
-- Morse code and audio transmission ✅
-- Dual-threshold battery watchdog ✅
-- Watchdog timer safety ✅
-- Hardware tested and validated ✅
-- Documentation complete ✅
+| Battery Voltage | Cell Voltage | Pin A9 Voltage | Status |
+|----------------|--------------|----------------|---------|
+| 16.8V | 4.20V | 2.80V | Fully Charged |
+| 14.8V | 3.70V | 2.47V | Nominal |
+| 13.6V | 3.40V | 2.27V | ⚠️ Soft Warning |
+| 12.8V | 3.20V | 2.13V | 🛑 Hard Shutdown |
+| 12.0V | 3.00V | 2.00V | ⚠️ Critical Damage Risk |
 
-**Next Development (Phase 3):**
-- Deep sleep power management
-- Duty cycle tracking and enforcement
-- Enhanced logging to SD card
+---
 
-### Contributing
+## 📚 Documentation
 
-This project welcomes contributions! Areas of interest:
-- Non-blocking code refactoring
-- Additional safety features
-- Power optimization
-- Testing and validation
-- Documentation improvements
-- Bug fixes
+### Primary References
 
-Please read the [Implementation Plan](IMPLEMENTATION_PLAN.md) before contributing.
+- **[Hardware_Reference.md](Hardware_Reference.md)** - Complete hardware specs, wiring, troubleshooting
+- **[Software_Reference.md](Software_Reference.md)** - Programming requirements, examples, best practices
 
-### Development Setup
+### Reference Code (Phase 1)
 
-```bash
-# Recommended: Use PlatformIO for better dependency management
-# Or use Arduino IDE with Teensyduino
+- **[Morse Code Controller.mdc](Morse%20Code%20Controller.mdc)** - Simple CW transmission (blocking)
+- **[Audio Controller Code.mdc](Audio%20Controller%20Code.mdc)** - WAV playback (blocking)
 
-# Install required libraries
-# Audio Library (Teensyduino)
-# SD Library (Arduino core)
-# Optional: Snooze, Watchdog_t4, TimeLib
-```
+### Project Guidelines
 
-## 📜 License
+- **[.cursorrules](.cursorrules)** - AI-assisted development guidelines and project rules
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+---
 
-**Copyright © 2026 Chris L White, WX7V**  
-*Hardware Reference and Project Design created with assisted by Gemini 3*
-*Code Written with assistance by Claude Sonnet 4.5*
+## 🛠️ Development Roadmap
 
-### Radio Operation Notice
+### Phase 1: Foundation ✅ COMPLETE
 
-This software is designed for **amateur radio operations only**. Users are responsible for:
+- [x] Morse code CW transmission (reference implementation)
+- [x] WAV file audio playback (reference implementation)
+- [x] Basic PTT control with proper timing
+- [x] Hardware specifications documented
+- [x] Software requirements documented
 
-- Compliance with FCC Part 97 rules (US) or equivalent regulations
-- Proper station identification (every 10 minutes)
-- Licensed operation on authorized frequencies
-- Adherence to duty cycle and power limitations
+### Phase 2: Production System (In Progress)
 
-**The authors assume no liability for improper or unlicensed use of this software.**
+**Core Implementation:**
+- [ ] Non-blocking state machine architecture
+- [ ] Concurrent operations (LED, battery monitoring)
+- [ ] Watchdog timer with PTT protection
+- [ ] Dual-threshold battery watchdog system
+- [ ] Alternating Morse/Audio transmission
+- [ ] Comprehensive error handling
 
-## 🏆 Acknowledgments
+**Testing Requirements:**
+- [ ] No blocking operations (loop() < 10ms)
+- [ ] PTT timing accurate (1000ms pre-roll, 500ms tail)
+- [ ] Battery protection triggers correctly
+- [ ] Watchdog timer tested and verified
+- [ ] 10+ transmission cycles stable
 
-- **PJRC** - For the excellent Teensy platform and Audio Library
-- **Amateur Radio Community** - For foxhunting traditions and techniques
-- **Google DeepMind** - For Gemini 3 AI assistance
-- **Anthropic** - For Claude Sonnet 4.5 AI assistance
+### Phase 3: Advanced Features (Future)
 
-## 📞 Contact
+- [ ] Deep sleep power management
+- [ ] Duty cycle tracking and enforcement
+- [ ] Randomized audio file selection
+- [ ] SD card event logging
+- [ ] Configuration system (CONFIG.TXT on SD card)
+- [ ] DTMF remote control (optional hardware)
+- [ ] VOX activation mode (optional hardware)
 
-**Chris L White, WX7V**
-
-Project Link: [https://github.com/wx7v/teensy4.1-foxhunt-controller](https://github.com/wx7v/teensy4.1-foxhunt-controller)
+---
 
 ## 🎯 Use Cases
 
@@ -302,9 +357,43 @@ Project Link: [https://github.com/wx7v/teensy4.1-foxhunt-controller](https://git
 - **Educational Demos** - Teaching RF propagation and antenna theory
 - **Field Day Activities** - Fun side activities at ham radio events
 
-## 📸 Gallery
+---
 
-*Photos and diagrams coming soon after field testing!*
+## 📜 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+**Copyright © 2026 Chris L White, WX7V**  
+*Hardware specifications created with assistance from Gemini 3*  
+*Code development with assistance from Claude Sonnet 4.5*
+
+### Radio Operation Notice
+
+This software is designed for **amateur radio operations only**. Users are responsible for:
+
+- Compliance with FCC Part 97 rules (US) or equivalent regulations
+- Proper station identification (every 10 minutes minimum)
+- Licensed operation on authorized frequencies
+- Adherence to duty cycle and power limitations
+
+**The authors assume no liability for improper or unlicensed use of this software.**
+
+---
+
+## 🏆 Acknowledgments
+
+- **PJRC** - For the excellent Teensy platform and Audio Library
+- **Amateur Radio Community** - For foxhunting traditions and techniques
+- **Google DeepMind** - For Gemini 3 AI assistance in hardware design
+- **Anthropic** - For Claude Sonnet 4.5 AI assistance in code development
+
+---
+
+## 📞 Contact
+
+**Chris L White, WX7V**
+
+Project repository: [GitHub - teensy4.1 foxhunt controller](https://github.com/wx7v/teensy4.1)
 
 ---
 
