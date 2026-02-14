@@ -1,7 +1,7 @@
 /*
  * WX7V Foxhunt Controller - Battery Monitor Test Script
  * 
- * VERSION: 1.5
+ * VERSION: 1.6
  * 
  * PURPOSE: Standalone test for battery voltage monitoring circuit
  * 
@@ -9,6 +9,7 @@
  * - Teensy 4.1
  * - Voltage divider: R1=10kΩ, R2=2.0kΩ
  * - Pin A9: Battery voltage input
+ * - SD card in built-in slot (FAT32 formatted, optional)
  * - Optional: 100nF capacitor across R2 for noise filtering
  * 
  * CIRCUIT:
@@ -42,12 +43,15 @@
  * v1.3 - Added Morse code LED patterns and reduced serial output to 5-min intervals
  * v1.4 - Fixed voltage thresholds (GOOD now 14.0V vs 14.8V for realistic LiPo monitoring)
  * v1.5 - Enhanced Morse code with multi-letter messages (SG, OL, OV, SOS)
+ * v1.6 - Added SD card logging
  */
+
+#include <SD.h>
 
 // ============================================================================
 // VERSION INFORMATION
 // ============================================================================
-const char* VERSION = "1.8";
+const char* VERSION = "1.6";
 const char* VERSION_DATE = "2026-02-14";
 
 // ============================================================================
@@ -76,6 +80,12 @@ const float VOLTAGE_GOOD = 14.0;          // 3.50V per cell (good working voltag
 const float VOLTAGE_SOFT_WARNING = 13.6;  // 3.40V per cell (low warning)
 const float VOLTAGE_HARD_SHUTDOWN = 12.8; // 3.20V per cell (shutdown recommended)
 const float VOLTAGE_CRITICAL = 12.0;      // 3.00V per cell (damage risk!)
+
+// Hysteresis for state changes (prevents bouncing near thresholds)
+const float VOLTAGE_HYSTERESIS = 0.2;     // 0.2V hysteresis band
+
+// Debounce settings (require multiple consecutive readings to change state)
+const int STATE_CHANGE_DEBOUNCE_COUNT = 3; // Require 3 consecutive readings
 
 // ============================================================================
 // SAMPLING CONFIGURATION
@@ -113,6 +123,8 @@ enum BatteryState {
 
 BatteryState currentState = STATE_GOOD;
 BatteryState previousState = STATE_GOOD;
+BatteryState pendingState = STATE_GOOD;     // State waiting to be confirmed
+int stateDebounceCounter = 0;               // Count consecutive readings of new state
 
 // State transition timestamps (milliseconds since start)
 unsigned long timeEnteredGood = 0;
@@ -132,6 +144,91 @@ String currentMorsePattern = "";                // Current pattern to display
 unsigned int morseIndex = 0;                    // Current position in pattern
 bool morseElementActive = false;                // LED on during element
 unsigned long morseLastChange = 0;              // Last state change time
+
+// SD Card logging
+File logFile;
+bool loggingEnabled = false;
+
+// ============================================================================
+// DUAL OUTPUT FUNCTIONS (Serial + SD Card)
+// ============================================================================
+
+void logPrint(const char* str) {
+  Serial.print(str);
+  if (loggingEnabled) {
+    logFile = SD.open("BAT.LOG", FILE_WRITE);
+    if (logFile) {
+      logFile.print(str);
+      logFile.close();
+    }
+  }
+}
+
+void logPrint(const String& str) {
+  Serial.print(str);
+  if (loggingEnabled) {
+    logFile = SD.open("BAT.LOG", FILE_WRITE);
+    if (logFile) {
+      logFile.print(str);
+      logFile.close();
+    }
+  }
+}
+
+void logPrint(int val) {
+  Serial.print(val);
+  if (loggingEnabled) {
+    logFile = SD.open("BAT.LOG", FILE_WRITE);
+    if (logFile) {
+      logFile.print(val);
+      logFile.close();
+    }
+  }
+}
+
+void logPrint(float val, int decimals = 2) {
+  Serial.print(val, decimals);
+  if (loggingEnabled) {
+    logFile = SD.open("BAT.LOG", FILE_WRITE);
+    if (logFile) {
+      logFile.print(val, decimals);
+      logFile.close();
+    }
+  }
+}
+
+void logPrintln(const char* str) {
+  Serial.println(str);
+  if (loggingEnabled) {
+    logFile = SD.open("BAT.LOG", FILE_WRITE);
+    if (logFile) {
+      logFile.println(str);
+      logFile.close();
+    }
+  }
+}
+
+void logPrintln(const String& str) {
+  Serial.println(str);
+  if (loggingEnabled) {
+    logFile = SD.open("BAT.LOG", FILE_WRITE);
+    if (logFile) {
+      logFile.println(str);
+      logFile.close();
+    }
+  }
+}
+
+void logPrintln() {
+  Serial.println();
+  if (loggingEnabled) {
+    logFile = SD.open("BAT.LOG", FILE_WRITE);
+    if (logFile) {
+      logFile.println();
+      logFile.close();
+    }
+  }
+}
 
 // ============================================================================
 // SETUP
@@ -172,6 +269,17 @@ void setup() {
   Serial.println("##                                    ##");
   Serial.println("########################################");
   Serial.println();
+  
+  // Initialize SD card logging
+  Serial.print("Initializing SD card...");
+  if (SD.begin(BUILTIN_SDCARD)) {
+    loggingEnabled = true;
+    Serial.println(" OK");
+  } else {
+    loggingEnabled = false;
+    Serial.println(" FAILED (continuing without logging)");
+  }
+  
   Serial.println("Hardware Configuration:");
   Serial.println("  Pin A9: Battery voltage input");
   Serial.println("  Pin 13: LED status (Morse code)");
@@ -271,9 +379,6 @@ void loop() {
       }
       // Note: State change display is handled in handleStateTransition()
     }
-    
-    // Always update LED based on battery status
-    updateStatusLED(batteryVoltage);
   }
   
   // Update Morse code LED (runs independently, non-blocking)
@@ -307,29 +412,100 @@ float readBatteryVoltage() {
 // UPDATE BATTERY STATE AND TRACK TRANSITIONS
 // ============================================================================
 void updateBatteryState(float batteryVoltage) {
-  // Determine current state based on voltage
-  previousState = currentState;
+  // Determine what state the voltage indicates
+  BatteryState measuredState;
   
-  if (batteryVoltage >= VOLTAGE_GOOD) {
-    currentState = STATE_GOOD;
-  } else if (batteryVoltage >= VOLTAGE_SOFT_WARNING) {
-    currentState = STATE_LOW;
-  } else if (batteryVoltage >= VOLTAGE_HARD_SHUTDOWN) {
-    currentState = STATE_VERY_LOW;
-  } else if (batteryVoltage >= VOLTAGE_CRITICAL) {
-    currentState = STATE_SHUTDOWN;
-  } else {
-    currentState = STATE_CRITICAL;
+  // Apply hysteresis based on current state to prevent bouncing
+  if (currentState == STATE_GOOD) {
+    // Need to drop below threshold minus hysteresis to trigger LOW
+    if (batteryVoltage >= VOLTAGE_GOOD) {
+      measuredState = STATE_GOOD;
+    } else if (batteryVoltage >= VOLTAGE_SOFT_WARNING - VOLTAGE_HYSTERESIS) {
+      measuredState = STATE_LOW;
+    } else if (batteryVoltage >= VOLTAGE_HARD_SHUTDOWN - VOLTAGE_HYSTERESIS) {
+      measuredState = STATE_VERY_LOW;
+    } else if (batteryVoltage >= VOLTAGE_CRITICAL - VOLTAGE_HYSTERESIS) {
+      measuredState = STATE_SHUTDOWN;
+    } else {
+      measuredState = STATE_CRITICAL;
+    }
+  } else if (currentState == STATE_LOW) {
+    // Add hysteresis: need to go significantly higher/lower to change state
+    if (batteryVoltage >= VOLTAGE_GOOD + VOLTAGE_HYSTERESIS) {
+      measuredState = STATE_GOOD;
+    } else if (batteryVoltage >= VOLTAGE_SOFT_WARNING) {
+      measuredState = STATE_LOW;
+    } else if (batteryVoltage >= VOLTAGE_HARD_SHUTDOWN - VOLTAGE_HYSTERESIS) {
+      measuredState = STATE_VERY_LOW;
+    } else if (batteryVoltage >= VOLTAGE_CRITICAL - VOLTAGE_HYSTERESIS) {
+      measuredState = STATE_SHUTDOWN;
+    } else {
+      measuredState = STATE_CRITICAL;
+    }
+  } else if (currentState == STATE_VERY_LOW) {
+    // Add hysteresis
+    if (batteryVoltage >= VOLTAGE_GOOD + VOLTAGE_HYSTERESIS) {
+      measuredState = STATE_GOOD;
+    } else if (batteryVoltage >= VOLTAGE_SOFT_WARNING + VOLTAGE_HYSTERESIS) {
+      measuredState = STATE_LOW;
+    } else if (batteryVoltage >= VOLTAGE_HARD_SHUTDOWN) {
+      measuredState = STATE_VERY_LOW;
+    } else if (batteryVoltage >= VOLTAGE_CRITICAL - VOLTAGE_HYSTERESIS) {
+      measuredState = STATE_SHUTDOWN;
+    } else {
+      measuredState = STATE_CRITICAL;
+    }
+  } else if (currentState == STATE_SHUTDOWN) {
+    // Add hysteresis
+    if (batteryVoltage >= VOLTAGE_GOOD + VOLTAGE_HYSTERESIS) {
+      measuredState = STATE_GOOD;
+    } else if (batteryVoltage >= VOLTAGE_SOFT_WARNING + VOLTAGE_HYSTERESIS) {
+      measuredState = STATE_LOW;
+    } else if (batteryVoltage >= VOLTAGE_HARD_SHUTDOWN + VOLTAGE_HYSTERESIS) {
+      measuredState = STATE_VERY_LOW;
+    } else if (batteryVoltage >= VOLTAGE_CRITICAL) {
+      measuredState = STATE_SHUTDOWN;
+    } else {
+      measuredState = STATE_CRITICAL;
+    }
+  } else { // STATE_CRITICAL
+    // Once critical, need significant recovery to change state
+    if (batteryVoltage >= VOLTAGE_HARD_SHUTDOWN + VOLTAGE_HYSTERESIS) {
+      measuredState = STATE_SHUTDOWN;
+    } else {
+      measuredState = STATE_CRITICAL;
+    }
   }
   
-  // Check for state transition
-  if (currentState != previousState) {
-    handleStateTransition();
-    
-    // Update Morse pattern for new state
-    currentMorsePattern = getMorsePattern(currentState);
-    morseIndex = 0;
-    morseElementActive = false;
+  // Debounce state changes: require multiple consecutive readings
+  if (measuredState != currentState) {
+    // New state detected
+    if (measuredState == pendingState) {
+      // Same pending state as before, increment counter
+      stateDebounceCounter++;
+      
+      if (stateDebounceCounter >= STATE_CHANGE_DEBOUNCE_COUNT) {
+        // Confirmed! Change state
+        previousState = currentState;
+        currentState = measuredState;
+        stateDebounceCounter = 0;
+        
+        handleStateTransition();
+        
+        // Update Morse pattern for new state
+        currentMorsePattern = getMorsePattern(currentState);
+        morseIndex = 0;
+        morseElementActive = false;
+      }
+    } else {
+      // Different pending state, restart counter
+      pendingState = measuredState;
+      stateDebounceCounter = 1;
+    }
+  } else {
+    // State matches current, reset debounce
+    pendingState = currentState;
+    stateDebounceCounter = 0;
   }
 }
 
@@ -339,16 +515,19 @@ void updateBatteryState(float batteryVoltage) {
 void handleStateTransition() {
   unsigned long currentTime = millis() - startTime;
   
+  // Read current voltage for logging
+  float batteryVoltage = readBatteryVoltage();
+  
   // Print transition notice
-  Serial.println();
-  Serial.println("========================================");
-  Serial.print("STATE TRANSITION: ");
-  Serial.print(getStateName(previousState));
-  Serial.print(" -> ");
-  Serial.println(getStateName(currentState));
-  Serial.print("Runtime: ");
-  Serial.println(formatDuration(currentTime));
-  Serial.println("========================================");
+  logPrintln();
+  logPrintln("========================================");
+  logPrint("STATE TRANSITION: ");
+  logPrint(getStateName(previousState));
+  logPrint(" -> ");
+  logPrintln(getStateName(currentState));
+  logPrint("Runtime: ");
+  logPrintln(formatDuration(currentTime));
+  logPrintln("========================================");
   
   // Record transition time and calculate duration in previous state
   switch (currentState) {
@@ -360,8 +539,8 @@ void handleStateTransition() {
       timeEnteredLow = currentTime;
       if (previousState == STATE_GOOD) {
         durationInGood = currentTime - timeEnteredGood;
-        Serial.print("Time in GOOD state: ");
-        Serial.println(formatDuration(durationInGood));
+        logPrint("Time in GOOD state: ");
+        logPrintln(formatDuration(durationInGood));
       }
       break;
       
@@ -369,8 +548,8 @@ void handleStateTransition() {
       timeEnteredVeryLow = currentTime;
       if (previousState == STATE_LOW) {
         durationInLow = timeEnteredVeryLow - timeEnteredLow;
-        Serial.print("Time in LOW state: ");
-        Serial.println(formatDuration(durationInLow));
+        logPrint("Time in LOW state: ");
+        logPrintln(formatDuration(durationInLow));
       }
       break;
       
@@ -378,8 +557,8 @@ void handleStateTransition() {
       timeEnteredShutdown = currentTime;
       if (previousState == STATE_VERY_LOW) {
         durationInVeryLow = timeEnteredShutdown - timeEnteredVeryLow;
-        Serial.print("Time in VERY_LOW state: ");
-        Serial.println(formatDuration(durationInVeryLow));
+        logPrint("Time in VERY_LOW state: ");
+        logPrintln(formatDuration(durationInVeryLow));
       }
       break;
       
@@ -387,23 +566,22 @@ void handleStateTransition() {
       timeEnteredCritical = currentTime;
       if (previousState == STATE_SHUTDOWN) {
         durationInShutdown = timeEnteredCritical - timeEnteredShutdown;
-        Serial.print("Time in SHUTDOWN state: ");
-        Serial.println(formatDuration(durationInShutdown));
+        logPrint("Time in SHUTDOWN state: ");
+        logPrintln(formatDuration(durationInShutdown));
       }
-      Serial.println("!!! CRITICAL: DISCONNECT BATTERY NOW !!!");
+      logPrintln("!!! CRITICAL: DISCONNECT BATTERY NOW !!!");
       break;
   }
   
   // Print summary statistics
   printStatistics();
   
-  Serial.println("========================================");
-  Serial.println();
-  Serial.println(" Runtime | ADC  | Pin A9  | Battery | Cell Avg | Status");
-  Serial.println("---------+------+---------+---------+----------+-------------------");
+  logPrintln("========================================");
+  logPrintln();
+  logPrintln(" Runtime | ADC  | Pin A9  | Battery | Cell Avg | Status");
+  logPrintln("---------+------+---------+---------+----------+-------------------");
   
-  // Display current reading after transition
-  float batteryVoltage = readBatteryVoltage();
+  // Display current reading after transition (use already-read batteryVoltage)
   displayVoltageReading(batteryVoltage);
   
   // Reset display timer so we don't immediately print again
@@ -444,54 +622,54 @@ String formatDuration(unsigned long milliseconds) {
 // PRINT STATISTICS
 // ============================================================================
 void printStatistics() {
-  Serial.println();
-  Serial.println("Cumulative Statistics:");
+  logPrintln();
+  logPrintln("Cumulative Statistics:");
   
   if (timeEnteredLow > 0) {
-    Serial.print("  GOOD -> LOW transition at: ");
-    Serial.println(formatDuration(timeEnteredLow));
+    logPrint("  GOOD -> LOW transition at: ");
+    logPrintln(formatDuration(timeEnteredLow));
   }
   
   if (timeEnteredVeryLow > 0) {
-    Serial.print("  LOW -> VERY_LOW transition at: ");
-    Serial.println(formatDuration(timeEnteredVeryLow));
+    logPrint("  LOW -> VERY_LOW transition at: ");
+    logPrintln(formatDuration(timeEnteredVeryLow));
   }
   
   if (timeEnteredShutdown > 0) {
-    Serial.print("  VERY_LOW -> SHUTDOWN transition at: ");
-    Serial.println(formatDuration(timeEnteredShutdown));
+    logPrint("  VERY_LOW -> SHUTDOWN transition at: ");
+    logPrintln(formatDuration(timeEnteredShutdown));
   }
   
   if (timeEnteredCritical > 0) {
-    Serial.print("  SHUTDOWN -> CRITICAL transition at: ");
-    Serial.println(formatDuration(timeEnteredCritical));
+    logPrint("  SHUTDOWN -> CRITICAL transition at: ");
+    logPrintln(formatDuration(timeEnteredCritical));
   }
   
-  Serial.println();
-  Serial.println("Total Time in Each State:");
+  logPrintln();
+  logPrintln("Total Time in Each State:");
   
   if (durationInGood > 0) {
-    Serial.print("  GOOD: ");
-    Serial.println(formatDuration(durationInGood));
+    logPrint("  GOOD: ");
+    logPrintln(formatDuration(durationInGood));
   }
   
   if (durationInLow > 0) {
-    Serial.print("  LOW: ");
-    Serial.println(formatDuration(durationInLow));
+    logPrint("  LOW: ");
+    logPrintln(formatDuration(durationInLow));
   }
   
   if (durationInVeryLow > 0) {
-    Serial.print("  VERY_LOW: ");
-    Serial.println(formatDuration(durationInVeryLow));
+    logPrint("  VERY_LOW: ");
+    logPrintln(formatDuration(durationInVeryLow));
   }
   
   if (durationInShutdown > 0) {
-    Serial.print("  SHUTDOWN: ");
-    Serial.println(formatDuration(durationInShutdown));
+    logPrint("  SHUTDOWN: ");
+    logPrintln(formatDuration(durationInShutdown));
   }
   
-  Serial.print("  Total Runtime: ");
-  Serial.println(formatDuration(totalRunTime));
+  logPrint("  Total Runtime: ");
+  logPrintln(formatDuration(totalRunTime));
 }
 
 // ============================================================================
@@ -507,41 +685,41 @@ void displayVoltageReading(float batteryVoltage) {
   char buffer[80];
   
   // Runtime (format: HH:MM:SS)
-  Serial.print(" ");
-  Serial.print(formatDuration(totalRunTime));
-  Serial.print(" | ");
+  logPrint(" ");
+  logPrint(formatDuration(totalRunTime));
+  logPrint(" | ");
   
   // ADC value (4 chars right-aligned)
   sprintf(buffer, "%4d", adcRaw);
-  Serial.print(buffer);
-  Serial.print(" | ");
+  logPrint(buffer);
+  logPrint(" | ");
   
   // Pin voltage (format: X.XXV)
   dtostrf(pinVoltage, 4, 2, buffer);
-  Serial.print(buffer);
-  Serial.print("V | ");
+  logPrint(buffer);
+  logPrint("V | ");
   
   // Battery voltage (format: XX.XXV)
   dtostrf(batteryVoltage, 5, 2, buffer);
-  Serial.print(buffer);
-  Serial.print("V | ");
+  logPrint(buffer);
+  logPrint("V | ");
   
   // Cell voltage (format: X.XXV)
   dtostrf(cellVoltage, 4, 2, buffer);
-  Serial.print(buffer);
-  Serial.print("V  | ");
+  logPrint(buffer);
+  logPrint("V  | ");
   
   // Determine and print status (ASCII-safe for IDE compatibility)
   if (batteryVoltage >= VOLTAGE_GOOD) {
-    Serial.println("[OK] GOOD");
+    logPrintln("[OK] GOOD");
   } else if (batteryVoltage >= VOLTAGE_SOFT_WARNING) {
-    Serial.println("[WARN] LOW");
+    logPrintln("[WARN] LOW");
   } else if (batteryVoltage >= VOLTAGE_HARD_SHUTDOWN) {
-    Serial.println("[WARN] VERY LOW");
+    logPrintln("[WARN] VERY LOW");
   } else if (batteryVoltage >= VOLTAGE_CRITICAL) {
-    Serial.println("[STOP] SHUTDOWN");
+    logPrintln("[STOP] SHUTDOWN");
   } else {
-    Serial.println("[CRIT] DAMAGE RISK!");
+    logPrintln("[CRIT] DAMAGE RISK!");
   }
 }
 
@@ -638,69 +816,18 @@ void updateMorseLED() {
 }
 
 // ============================================================================
-// UPDATE STATUS LED (DEPRECATED - NOW USING MORSE CODE)
-// ============================================================================
-void updateStatusLED(float batteryVoltage) {
-  // This function is deprecated but kept for compatibility
-  // LED control is now handled by updateMorseLED()
-  // The morse code pattern is updated in updateBatteryState()
-}
-
-// ============================================================================
-// CALIBRATION HELPER
+// CALIBRATION NOTES
 // ============================================================================
 /*
- * CALIBRATION PROCEDURE:
+ * To calibrate voltage readings:
  * 
- * 1. Connect a fully charged 4S LiPo battery (16.8V)
- * 2. Measure actual battery voltage with a multimeter
- * 3. Note the "Battery" voltage displayed in Serial Monitor
- * 4. Calculate calibration factor:
- *      new_ratio = (actual_voltage / displayed_voltage) * 6.0
- * 5. Update VOLTAGE_DIVIDER_RATIO constant with new_ratio
- * 6. Re-upload and verify at multiple voltage levels
+ * 1. Measure actual battery voltage with multimeter
+ * 2. Compare with "Battery" voltage in Serial Monitor
+ * 3. Calculate: new_ratio = (actual_voltage / displayed_voltage) * 6.0
+ * 4. Update VOLTAGE_DIVIDER_RATIO constant and re-upload
  * 
- * EXAMPLE:
- *   Multimeter reads: 16.75V
- *   Monitor displays: 16.55V
- *   Calibration: (16.75 / 16.55) * 6.0 = 6.07
- *   Update: const float VOLTAGE_DIVIDER_RATIO = 6.07;
+ * Example: If multimeter reads 16.75V but monitor shows 16.55V:
+ *   new_ratio = (16.75 / 16.55) * 6.0 = 6.07
  * 
- * NOTE: Use 1% tolerance resistors for best accuracy
- * 
- * VIEWING IN ARDUINO IDE:
- * - Open Serial Monitor: Tools -> Serial Monitor (Ctrl+Shift+M)
- * - Set baud rate to 115200 in dropdown (bottom-right)
- * - Enable "Show timestamp" for timing verification (optional)
- * - Set to "Both NL & CR" or "Newline" for proper formatting
- * - Output updates every 5 minutes (or immediately on state change)
- * - Observe LED on Teensy for continuous Morse code status indication:
- *     * SG  (... --. )      = STATUS GOOD (>= 14.0V)
- *     * OL  (--- .-..)      = OVERLOAD LOW (>= 13.6V)
- *     * OV  (--- ...-)      = OVERLOAD VERY LOW (>= 12.8V)
- *     * SOSS (... --- ... ...) = SOS SHUTDOWN (>= 12.0V)
- *     * SOSC (... --- ... -.-.) = SOS CRITICAL (< 12.0V)
- * 
- * RUNTIME TRACKING:
- * - Start time is recorded at startup
- * - Total runtime displayed in HH:MM:SS format
- * - Battery sampled every 500ms for accurate state detection
- * - Display output every 5 minutes to reduce serial clutter
- * - State transitions immediately logged with full statistics
- * - Cumulative statistics printed at each transition:
- *     * Time spent in each battery state
- *     * Transition timestamps
- *     * Total runtime
- * - Use this data to estimate battery life for foxhunt events
- * - LED provides continuous Morse code feedback between display updates
- * 
- * MORSE CODE TIMING:
- * - Speed: ~6 WPM (optimized for visual LED reading)
- * - Dot: 200ms (1 unit)
- * - Dash: 600ms (3 units)
- * - Element spacing: 200ms (1 unit - between dots/dashes within a letter)
- * - Letter spacing: 600ms (3 units - between letters in a message)
- * - Word/message spacing: 1400ms (7 units - before repeating message)
- * - Based on standard International Morse Code timing ratios
- * - Multi-letter messages provide clear status context
+ * Note: Use 1% tolerance resistors for best accuracy
  */

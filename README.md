@@ -79,7 +79,6 @@ After production system is stable:
 - **Power management** - Deep sleep during idle periods (~5mA vs ~100mA)
 - **Duty cycle management** - Prevent radio overheating (20% max)
 - **Randomized audio** - Multiple taunt files with random selection
-- **Logging system** - SD card event logging for diagnostics
 - **Configuration system** - SD card based config file
 - **Remote control** - DTMF commands (optional hardware)
 - **VOX activation** - Silent operation until "called" (optional)
@@ -304,6 +303,11 @@ This is **safety-critical code** - a stuck PTT can drain batteries, overheat equ
 - **[Morse Code Controller.mdc](Morse%20Code%20Controller.mdc)** - Simple CW transmission (blocking)
 - **[Audio Controller Code.mdc](Audio%20Controller%20Code.mdc)** - WAV playback (blocking)
 
+### Test Programs
+
+- **[battery_monitor_test](battery_monitor_test/)** - Battery voltage monitoring with SD logging, Morse LED patterns, and false-alarm prevention (v1.6)
+- **[audio_test](audio_test/)** - Audio playback testing
+
 ### Project Guidelines
 
 - **[.cursorrules](.cursorrules)** - AI-assisted development guidelines and project rules
@@ -327,6 +331,7 @@ This is **safety-critical code** - a stuck PTT can drain batteries, overheat equ
 - [ ] Concurrent operations (LED, battery monitoring)
 - [ ] Watchdog timer with PTT protection
 - [ ] Dual-threshold battery watchdog system
+- [ ] SD card event logging (standard SD library)
 - [ ] Alternating Morse/Audio transmission
 - [ ] Comprehensive error handling
 
@@ -342,7 +347,6 @@ This is **safety-critical code** - a stuck PTT can drain batteries, overheat equ
 - [ ] Deep sleep power management
 - [ ] Duty cycle tracking and enforcement
 - [ ] Randomized audio file selection
-- [ ] SD card event logging
 - [ ] Configuration system (CONFIG.TXT on SD card)
 - [ ] DTMF remote control (optional hardware)
 - [ ] VOX activation mode (optional hardware)

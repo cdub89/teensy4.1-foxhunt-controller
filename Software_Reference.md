@@ -223,6 +223,98 @@ void checkBatteryStatus() {
 }
 ```
 
+### Preventing False Alarms (Hysteresis + Debouncing)
+
+**Problem:** Electrical noise, RF interference, or transient voltage drops during SD card writes can cause false battery alarms.
+
+**Solution:** Combine hysteresis (voltage bands) with debouncing (multiple consecutive readings).
+
+```cpp
+// Battery thresholds with hysteresis
+const float VOLTAGE_GOOD = 14.0;
+const float VOLTAGE_SOFT_WARNING = 13.6;
+const float VOLTAGE_HARD_SHUTDOWN = 12.8;
+const float VOLTAGE_HYSTERESIS = 0.2;  // 0.2V band prevents bouncing
+
+// Debounce settings
+const int STATE_CHANGE_DEBOUNCE_COUNT = 3;  // Require 3 consecutive readings
+
+BatteryState currentState = STATE_GOOD;
+BatteryState pendingState = STATE_GOOD;
+int stateDebounceCounter = 0;
+
+void updateBatteryState(float batteryVoltage) {
+  BatteryState measuredState;
+  
+  // Apply hysteresis based on current state
+  if (currentState == STATE_GOOD) {
+    // Need to drop below threshold - hysteresis to trigger warning
+    if (batteryVoltage >= VOLTAGE_GOOD) {
+      measuredState = STATE_GOOD;
+    } else if (batteryVoltage >= VOLTAGE_SOFT_WARNING - VOLTAGE_HYSTERESIS) {
+      measuredState = STATE_LOW;
+    } else {
+      measuredState = STATE_SHUTDOWN;
+    }
+  } else if (currentState == STATE_LOW) {
+    // Need to rise above threshold + hysteresis to return to good
+    if (batteryVoltage >= VOLTAGE_GOOD + VOLTAGE_HYSTERESIS) {
+      measuredState = STATE_GOOD;
+    } else if (batteryVoltage >= VOLTAGE_SOFT_WARNING) {
+      measuredState = STATE_LOW;
+    } else {
+      measuredState = STATE_SHUTDOWN;
+    }
+  } else { // STATE_SHUTDOWN
+    // Once in shutdown, need significant recovery
+    if (batteryVoltage >= VOLTAGE_HARD_SHUTDOWN + VOLTAGE_HYSTERESIS) {
+      measuredState = STATE_LOW;
+    } else {
+      measuredState = STATE_SHUTDOWN;
+    }
+  }
+  
+  // Debounce: require multiple consecutive readings
+  if (measuredState != currentState) {
+    if (measuredState == pendingState) {
+      // Same pending state, increment counter
+      stateDebounceCounter++;
+      
+      if (stateDebounceCounter >= STATE_CHANGE_DEBOUNCE_COUNT) {
+        // Confirmed! Change state
+        currentState = measuredState;
+        stateDebounceCounter = 0;
+        handleStateTransition();  // Log, alert, etc.
+      }
+    } else {
+      // Different pending state, restart counter
+      pendingState = measuredState;
+      stateDebounceCounter = 1;
+    }
+  } else {
+    // State matches current, reset debounce
+    pendingState = currentState;
+    stateDebounceCounter = 0;
+  }
+}
+```
+
+**How it works:**
+- **Hysteresis:** Creates a "no-man's land" between states. At 14.0V threshold, must drop to 13.8V to trigger LOW, but must rise to 14.2V to return to GOOD
+- **Debouncing:** Requires 3 consecutive matching readings (1.5 seconds at 500ms sampling) before accepting state change
+- **Result:** Single noise spike won't trigger alarm; real battery discharge still detected within ~1.5 seconds
+
+**Example scenario:**
+```
+Battery at 14.1V (GOOD)
+  → Noise spike: 13.9V (1/3)
+  → Next reading: 14.0V → Counter resets, stays GOOD ✓
+
+Battery actually discharging
+  → 13.7V, 13.7V, 13.6V (3/3) → Changes to LOW
+  → Must reach 14.2V to return to GOOD (prevents bouncing)
+```
+
 ### Hard Shutdown Implementation
 
 ```cpp
@@ -804,10 +896,11 @@ Before marking any feature complete:
 - [ ] Watchdog timer tested (intentional hang recovery)
 - [ ] Duty cycle limits enforced
 - [ ] Low-battery condition handled (soft warning + hard shutdown)
+- [ ] Battery false-alarm prevention tested (hysteresis + debouncing working)
 - [ ] Audio quality checked (clean tones, no distortion)
 - [ ] Power consumption measured
 - [ ] FCC ID requirement met (every 10 minutes)
-- [ ] Serial logging functional for debugging
+- [ ] SD card logging functional (writes on state changes, survives SD card removal)
 - [ ] SD card handling graceful (continues without SD if not needed)
 
 ---
@@ -819,10 +912,119 @@ Prefer these libraries for Teensy 4.1:
 - **Audio Library** (native Teensy) - Audio playback and synthesis
 - **Snooze Library** - Power management
 - **TimeLib** - RTC functions if needed
-- **SD Library** - File access
+- **SD Library** (built-in) - File access and logging
 - **Watchdog_t4** - Safety interlocks
 
 **Installation:** Arduino IDE → Tools → Manage Libraries → Search for library name
+
+---
+
+## SD Card Logging
+
+### Overview
+
+Use the **standard Arduino SD library** (included with Teensy) for simple, reliable logging:
+
+- ✅ Works with audio files on the same SD card
+- ✅ No external libraries needed
+- ✅ Simple and well-documented
+- ✅ Graceful degradation if SD card fails
+
+### Implementation Pattern
+
+See `battery_monitor_test/battery_monitor_test.ino` for complete working example.
+
+**Key principles:**
+1. Open file, write data, close file (reliability over performance)
+2. Check `loggingEnabled` flag before every write
+3. Continue normal operation if SD card unavailable
+4. Use simple timestamp format: `millis()` or formatted duration
+
+```cpp
+#include <SD.h>
+
+File logFile;
+bool loggingEnabled = false;
+
+void setup() {
+  Serial.begin(115200);
+  
+  // Initialize SD card
+  if (SD.begin(BUILTIN_SDCARD)) {
+    loggingEnabled = true;
+  }
+}
+
+// Helper function to log to both Serial and SD card
+void logPrintln(const char* str) {
+  Serial.println(str);
+  if (loggingEnabled) {
+    logFile = SD.open("FOX.LOG", FILE_WRITE);
+    if (logFile) {
+      logFile.println(str);
+      logFile.close();  // Close after each write for reliability
+    }
+  }
+}
+```
+
+**Log file naming:**
+- `BAT.LOG` - Battery monitor logs
+- `FOX.LOG` - Main controller logs
+- `ERROR.LOG` - Error/diagnostic logs
+
+### Simplified Logging (Mirror Serial Output)
+
+The simplest approach: whatever goes to Serial Monitor also goes to SD card.
+
+See `battery_monitor_test.ino` lines 156-231 for complete implementation of dual-output logging functions.
+
+### Best Practices
+
+**1. Close Files After Each Write**
+```cpp
+logFile = SD.open("FOX.LOG", FILE_WRITE);
+if (logFile) {
+  logFile.println("message");
+  logFile.close();  // Important for data integrity!
+}
+```
+
+**2. Check Return Values**
+```cpp
+if (!SD.begin(BUILTIN_SDCARD)) {
+  Serial.println("SD card failed");
+  loggingEnabled = false;
+}
+```
+
+**3. Keep It Simple**
+```cpp
+// Don't over-engineer - simple append is reliable
+logFile = SD.open("FOX.LOG", FILE_WRITE);
+logFile.println(message);
+logFile.close();
+```
+
+**4. Coexist with Audio Files**
+```cpp
+// This approach works fine with WAV files on the same SD card
+SD.open("FOX.LOG", FILE_WRITE);    // Logging
+SD.open("FOXID.WAV", FILE_READ);   // Audio playback - no conflicts!
+```
+
+### Advantages of This Approach
+
+| Feature | Standard SD Library | TinySDLogger | Custom Logger |
+|---------|---------------------|--------------|---------------|
+| **Works with audio files** | ✅ Yes | ❌ No (corrupts!) | ✅ Yes |
+| **Built-in to Teensy** | ✅ Yes | ❌ No | ❌ No |
+| **Simple API** | ✅ Yes | ✅ Yes | ⚠️ Complex |
+| **Well tested** | ✅ Yes | ⚠️ Limited | ❌ Untested |
+| **Log rotation** | ⚠️ Manual | ❌ No | ✅ Auto |
+| **Memory usage** | ⚠️ ~600 bytes | ✅ ~100 bytes | ⚠️ Varies |
+
+**For this project, the standard SD library is the best choice** - it's simple, reliable, and works with audio files.
 
 ---
 
