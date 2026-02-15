@@ -1,7 +1,7 @@
 /*
  * WX7V Foxhunt Controller - Battery Monitor Test Script
  * 
- * VERSION: 1.7
+ * VERSION: 1.8
  * 
  * PURPOSE: Standalone test for battery voltage monitoring circuit
  * 
@@ -34,7 +34,7 @@
  * - All output is ASCII-safe for Arduino IDE compatibility
  * 
  * AUTHOR: WX7V
- * DATE: 2026-02-14
+ * DATE: 2026-02-15
  * 
  * VERSION HISTORY:
  * v1.0 - Initial release with basic voltage monitoring
@@ -45,6 +45,8 @@
  * v1.5 - Enhanced Morse code with multi-letter messages (SG, OL, OV, SOS)
  * v1.6 - Added SD card logging
  * v1.7 - Added date/time stamping for all log entries
+ * v1.8 - SAFETY FIXES: Accurate initial state detection, improved transition logging,
+ *        voltage reporting at transitions (bypasses hysteresis on first read)
  */
 
 #include <SD.h>
@@ -53,8 +55,8 @@
 // ============================================================================
 // VERSION INFORMATION
 // ============================================================================
-const char* VERSION = "1.7";
-const char* VERSION_DATE = "2026-02-14";
+const char* VERSION = "1.8";
+const char* VERSION_DATE = "2026-02-15";
 
 // ============================================================================
 // PIN DEFINITIONS
@@ -127,6 +129,7 @@ BatteryState currentState = STATE_GOOD;
 BatteryState previousState = STATE_GOOD;
 BatteryState pendingState = STATE_GOOD;     // State waiting to be confirmed
 int stateDebounceCounter = 0;               // Count consecutive readings of new state
+bool isFirstReading = true;                 // Flag to bypass hysteresis on startup
 
 // State transition timestamps (milliseconds since start)
 unsigned long timeEnteredGood = 0;
@@ -441,69 +444,81 @@ float readBatteryVoltage() {
 // UPDATE BATTERY STATE AND TRACK TRANSITIONS
 // ============================================================================
 void updateBatteryState(float batteryVoltage) {
-  // Determine what state the voltage indicates
+  // Determine what state the voltage indicates based on simple thresholds
   BatteryState measuredState;
   
-  // Apply hysteresis based on current state to prevent bouncing
-  if (currentState == STATE_GOOD) {
-    // Need to drop below threshold minus hysteresis to trigger LOW
+  // On first reading, bypass hysteresis to get true initial state
+  if (isFirstReading) {
+    isFirstReading = false;
+    
+    // Simple threshold check without hysteresis for accurate startup state
     if (batteryVoltage >= VOLTAGE_GOOD) {
-      measuredState = STATE_GOOD;
-    } else if (batteryVoltage >= VOLTAGE_SOFT_WARNING - VOLTAGE_HYSTERESIS) {
-      measuredState = STATE_LOW;
-    } else if (batteryVoltage >= VOLTAGE_HARD_SHUTDOWN - VOLTAGE_HYSTERESIS) {
-      measuredState = STATE_VERY_LOW;
-    } else if (batteryVoltage >= VOLTAGE_CRITICAL - VOLTAGE_HYSTERESIS) {
-      measuredState = STATE_SHUTDOWN;
-    } else {
-      measuredState = STATE_CRITICAL;
-    }
-  } else if (currentState == STATE_LOW) {
-    // Add hysteresis: need to go significantly higher/lower to change state
-    if (batteryVoltage >= VOLTAGE_GOOD + VOLTAGE_HYSTERESIS) {
       measuredState = STATE_GOOD;
     } else if (batteryVoltage >= VOLTAGE_SOFT_WARNING) {
       measuredState = STATE_LOW;
-    } else if (batteryVoltage >= VOLTAGE_HARD_SHUTDOWN - VOLTAGE_HYSTERESIS) {
-      measuredState = STATE_VERY_LOW;
-    } else if (batteryVoltage >= VOLTAGE_CRITICAL - VOLTAGE_HYSTERESIS) {
-      measuredState = STATE_SHUTDOWN;
-    } else {
-      measuredState = STATE_CRITICAL;
-    }
-  } else if (currentState == STATE_VERY_LOW) {
-    // Add hysteresis
-    if (batteryVoltage >= VOLTAGE_GOOD + VOLTAGE_HYSTERESIS) {
-      measuredState = STATE_GOOD;
-    } else if (batteryVoltage >= VOLTAGE_SOFT_WARNING + VOLTAGE_HYSTERESIS) {
-      measuredState = STATE_LOW;
     } else if (batteryVoltage >= VOLTAGE_HARD_SHUTDOWN) {
-      measuredState = STATE_VERY_LOW;
-    } else if (batteryVoltage >= VOLTAGE_CRITICAL - VOLTAGE_HYSTERESIS) {
-      measuredState = STATE_SHUTDOWN;
-    } else {
-      measuredState = STATE_CRITICAL;
-    }
-  } else if (currentState == STATE_SHUTDOWN) {
-    // Add hysteresis
-    if (batteryVoltage >= VOLTAGE_GOOD + VOLTAGE_HYSTERESIS) {
-      measuredState = STATE_GOOD;
-    } else if (batteryVoltage >= VOLTAGE_SOFT_WARNING + VOLTAGE_HYSTERESIS) {
-      measuredState = STATE_LOW;
-    } else if (batteryVoltage >= VOLTAGE_HARD_SHUTDOWN + VOLTAGE_HYSTERESIS) {
       measuredState = STATE_VERY_LOW;
     } else if (batteryVoltage >= VOLTAGE_CRITICAL) {
       measuredState = STATE_SHUTDOWN;
     } else {
       measuredState = STATE_CRITICAL;
     }
-  } else { // STATE_CRITICAL
-    // Once critical, need significant recovery to change state
-    if (batteryVoltage >= VOLTAGE_HARD_SHUTDOWN + VOLTAGE_HYSTERESIS) {
-      measuredState = STATE_SHUTDOWN;
-    } else {
-      measuredState = STATE_CRITICAL;
+    
+    currentState = measuredState;
+    previousState = measuredState;
+    pendingState = measuredState;
+    
+    // Record entry time for initial state
+    switch (measuredState) {
+      case STATE_GOOD:      timeEnteredGood = 0; break;
+      case STATE_LOW:       timeEnteredLow = 0; break;
+      case STATE_VERY_LOW:  timeEnteredVeryLow = 0; break;
+      case STATE_SHUTDOWN:  timeEnteredShutdown = 0; break;
+      case STATE_CRITICAL:  timeEnteredCritical = 0; break;
     }
+    
+    return; // Skip debouncing on first read
+  }
+  
+  // Simple threshold logic with hysteresis to prevent bouncing
+  // When voltage is falling (going to worse state): use threshold minus hysteresis
+  // When voltage is rising (recovering): use threshold plus hysteresis
+  
+  if (batteryVoltage >= VOLTAGE_GOOD) {
+    // Battery is healthy: > 14.0V
+    measuredState = STATE_GOOD;
+    
+  } else if (batteryVoltage >= VOLTAGE_SOFT_WARNING) {
+    // Battery is getting low: 13.6V - 14.0V
+    // Apply hysteresis: if currently GOOD, need to drop below 13.6V - 0.2V to trigger LOW
+    // If currently LOW or worse, need to rise above 14.0V + 0.2V to return to GOOD
+    if (currentState == STATE_GOOD && batteryVoltage >= (VOLTAGE_SOFT_WARNING - VOLTAGE_HYSTERESIS)) {
+      measuredState = STATE_GOOD;  // Stay GOOD (hysteresis prevents immediate transition)
+    } else {
+      measuredState = STATE_LOW;
+    }
+    
+  } else if (batteryVoltage >= VOLTAGE_HARD_SHUTDOWN) {
+    // Battery is very low: 12.8V - 13.6V
+    // Apply hysteresis similar to above
+    if (currentState == STATE_LOW && batteryVoltage >= (VOLTAGE_HARD_SHUTDOWN - VOLTAGE_HYSTERESIS)) {
+      measuredState = STATE_LOW;  // Stay LOW (hysteresis)
+    } else {
+      measuredState = STATE_VERY_LOW;
+    }
+    
+  } else if (batteryVoltage >= VOLTAGE_CRITICAL) {
+    // Battery is at shutdown threshold: 12.0V - 12.8V
+    // Apply hysteresis
+    if (currentState == STATE_VERY_LOW && batteryVoltage >= (VOLTAGE_CRITICAL - VOLTAGE_HYSTERESIS)) {
+      measuredState = STATE_VERY_LOW;  // Stay VERY_LOW (hysteresis)
+    } else {
+      measuredState = STATE_SHUTDOWN;
+    }
+    
+  } else {
+    // Battery is critically low: < 12.0V (damage risk!)
+    measuredState = STATE_CRITICAL;
   }
   
   // Debounce state changes: require multiple consecutive readings
@@ -547,13 +562,16 @@ void handleStateTransition() {
   // Read current voltage for logging
   float batteryVoltage = readBatteryVoltage();
   
-  // Print transition notice
+  // Print transition notice with voltage
   logPrintln();
   logPrintln("========================================");
   logPrint("STATE TRANSITION: ");
   logPrint(getStateName(previousState));
   logPrint(" -> ");
-  logPrintln(getStateName(currentState));
+  logPrint(getStateName(currentState));
+  logPrint(" at ");
+  logPrint(batteryVoltage, 2);
+  logPrintln("V");
   logPrint("Runtime: ");
   logPrintln(formatDuration(currentTime));
   logPrintln("========================================");
@@ -654,51 +672,67 @@ void printStatistics() {
   logPrintln();
   logPrintln("Cumulative Statistics:");
   
+  // Print actual transition that occurred
+  logPrint("  Actual transition: ");
+  logPrint(getStateName(previousState));
+  logPrint(" -> ");
+  logPrintln(getStateName(currentState));
+  
+  logPrintln();
+  logPrintln("State Entry Times:");
+  
+  if (timeEnteredGood >= 0) {
+    logPrint("  Entered GOOD at: ");
+    logPrintln(formatDuration(timeEnteredGood));
+  }
+  
   if (timeEnteredLow > 0) {
-    logPrint("  GOOD -> LOW transition at: ");
+    logPrint("  Entered LOW at: ");
     logPrintln(formatDuration(timeEnteredLow));
   }
   
   if (timeEnteredVeryLow > 0) {
-    logPrint("  LOW -> VERY_LOW transition at: ");
+    logPrint("  Entered VERY_LOW at: ");
     logPrintln(formatDuration(timeEnteredVeryLow));
   }
   
   if (timeEnteredShutdown > 0) {
-    logPrint("  VERY_LOW -> SHUTDOWN transition at: ");
+    logPrint("  Entered SHUTDOWN at: ");
     logPrintln(formatDuration(timeEnteredShutdown));
   }
   
   if (timeEnteredCritical > 0) {
-    logPrint("  SHUTDOWN -> CRITICAL transition at: ");
+    logPrint("  Entered CRITICAL at: ");
     logPrintln(formatDuration(timeEnteredCritical));
   }
   
   logPrintln();
-  logPrintln("Total Time in Each State:");
+  logPrintln("Time Spent in Previous State:");
   
-  if (durationInGood > 0) {
+  // Calculate actual time spent in previous state
+  unsigned long previousStateDuration = 0;
+  unsigned long currentTimeStamp = millis() - startTime;
+  
+  if (previousState == STATE_GOOD && timeEnteredGood >= 0) {
+    previousStateDuration = currentTimeStamp - timeEnteredGood;
     logPrint("  GOOD: ");
-    logPrintln(formatDuration(durationInGood));
-  }
-  
-  if (durationInLow > 0) {
+    logPrintln(formatDuration(previousStateDuration));
+  } else if (previousState == STATE_LOW && timeEnteredLow > 0) {
+    previousStateDuration = currentTimeStamp - timeEnteredLow;
     logPrint("  LOW: ");
-    logPrintln(formatDuration(durationInLow));
-  }
-  
-  if (durationInVeryLow > 0) {
+    logPrintln(formatDuration(previousStateDuration));
+  } else if (previousState == STATE_VERY_LOW && timeEnteredVeryLow > 0) {
+    previousStateDuration = currentTimeStamp - timeEnteredVeryLow;
     logPrint("  VERY_LOW: ");
-    logPrintln(formatDuration(durationInVeryLow));
-  }
-  
-  if (durationInShutdown > 0) {
+    logPrintln(formatDuration(previousStateDuration));
+  } else if (previousState == STATE_SHUTDOWN && timeEnteredShutdown > 0) {
+    previousStateDuration = currentTimeStamp - timeEnteredShutdown;
     logPrint("  SHUTDOWN: ");
-    logPrintln(formatDuration(durationInShutdown));
+    logPrintln(formatDuration(previousStateDuration));
   }
   
   logPrint("  Total Runtime: ");
-  logPrintln(formatDuration(totalRunTime));
+  logPrintln(formatDuration(currentTimeStamp));
 }
 
 // ============================================================================
@@ -741,17 +775,26 @@ void displayVoltageReading(float batteryVoltage) {
   logPrint(buffer);
   logPrint("V  | ");
   
-  // Determine and print status (ASCII-safe for IDE compatibility)
-  if (batteryVoltage >= VOLTAGE_GOOD) {
-    logPrintln("[OK] GOOD");
-  } else if (batteryVoltage >= VOLTAGE_SOFT_WARNING) {
-    logPrintln("[WARN] LOW");
-  } else if (batteryVoltage >= VOLTAGE_HARD_SHUTDOWN) {
-    logPrintln("[WARN] VERY LOW");
-  } else if (batteryVoltage >= VOLTAGE_CRITICAL) {
-    logPrintln("[STOP] SHUTDOWN");
-  } else {
-    logPrintln("[CRIT] DAMAGE RISK!");
+  // Print status based on current state (matches LED Morse code)
+  switch (currentState) {
+    case STATE_GOOD:
+      logPrintln("[OK] GOOD");
+      break;
+    case STATE_LOW:
+      logPrintln("[WARN] LOW");
+      break;
+    case STATE_VERY_LOW:
+      logPrintln("[WARN] VERY LOW");
+      break;
+    case STATE_SHUTDOWN:
+      logPrintln("[STOP] SHUTDOWN");
+      break;
+    case STATE_CRITICAL:
+      logPrintln("[CRIT] DAMAGE RISK!");
+      break;
+    default:
+      logPrintln("[???] UNKNOWN");
+      break;
   }
 }
 
@@ -921,32 +964,15 @@ void printDateTimeToFile(File &file) {
 }
 
 // ============================================================================
-// CALIBRATION NOTES
+// VOLTAGE CALIBRATION
 // ============================================================================
 /*
- * SETTING THE DATE/TIME:
- * 
- * The Teensy 4.1 has a built-in battery-backed RTC (Real-Time Clock).
- * Time is automatically set from the Teensy's RTC on startup.
- * 
- * To set the correct date/time:
- * 1. Upload this sketch
- * 2. Use Arduino IDE: Tools → Set Time → OK (sets RTC to computer's time)
- * 3. The RTC will maintain time even after power off (with backup battery)
- * 
- * To manually set time in code:
- *   setTime(hour, minute, second, day, month, year);
- *   Example: setTime(14, 30, 0, 14, 2, 2026);  // Feb 14, 2026 at 2:30 PM
- *   Teensy3Clock.set(now());  // Write to hardware RTC
- * 
- * VOLTAGE CALIBRATION:
- * 
  * To calibrate voltage readings:
  * 
  * 1. Measure actual battery voltage with multimeter
  * 2. Compare with "Battery" voltage in Serial Monitor
  * 3. Calculate: new_ratio = (actual_voltage / displayed_voltage) * 6.0
- * 4. Update VOLTAGE_DIVIDER_RATIO constant and re-upload
+ * 4. Update VOLTAGE_DIVIDER_RATIO constant (line 70) and re-upload
  * 
  * Example: If multimeter reads 16.75V but monitor shows 16.55V:
  *   new_ratio = (16.75 / 16.55) * 6.0 = 6.07
