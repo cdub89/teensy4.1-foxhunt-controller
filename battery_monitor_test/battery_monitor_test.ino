@@ -1,7 +1,7 @@
 /*
  * WX7V Foxhunt Controller - Battery Monitor Test Script
  * 
- * VERSION: 2.0
+ * VERSION: 2.1
  * 
  * PURPOSE: Standalone test for battery voltage monitoring circuit
  * 
@@ -54,6 +54,9 @@
  *        debouncing only. Updated thresholds: GOOD=14.5V, SHUTDOWN=13.2V (conservative).
  *        Optimized for 60-second PTT transmissions in amateur radio foxhunt application.
  *        Accepts temporary state changes during PTT as accurate load readings.
+ * v2.1 - FIX: Removed first-reading bypass that trusted unreliable ADC values at startup.
+ *        Now uses normal debouncing from boot (1.5s delay before first accurate reading).
+ *        Fixed header alignment to include timestamp column.
  */
 
 #include <SD.h>
@@ -62,7 +65,7 @@
 // ============================================================================
 // VERSION INFORMATION
 // ============================================================================
-const char* VERSION = "2.0";
+const char* VERSION = "2.1";
 const char* VERSION_DATE = "2026-02-15";
 
 // ============================================================================
@@ -134,7 +137,6 @@ BatteryState currentState = STATE_GOOD;
 BatteryState previousState = STATE_GOOD;
 BatteryState pendingState = STATE_GOOD;     // State waiting to be confirmed
 int stateDebounceCounter = 0;               // Count consecutive readings of new state
-bool isFirstReading = true;                 // Flag to bypass hysteresis on startup
 
 // State transition timestamps (milliseconds since start)
 unsigned long timeEnteredGood = 0;
@@ -370,22 +372,17 @@ void setup() {
   startTime = millis();
   timeEnteredGood = 0;  // Start in GOOD state at time 0
   lastSampleTime = millis();
-  lastDisplayTime = millis();  // Initialize display timer
+  lastDisplayTime = millis() - DISPLAY_INTERVAL - 1000;  // Force first reading to display
   
   // Initialize Morse code for GOOD state (will be updated after first reading)
   currentMorsePattern = getMorsePattern(STATE_GOOD);
   morseLastChange = millis();
   
-  Serial.println(" Runtime | ADC  | Pin A9  | Battery | Cell Avg | Status");
-  Serial.println("---------+------+---------+---------+----------+-------------------");
+  Serial.println("     Timestamp        | Runtime | ADC  | Pin A9  | Battery | Cell Avg | Status");
+  Serial.println("----------------------+---------+------+---------+---------+----------+-------------------");
   
-  // Display initial battery reading immediately
-  float initialVoltage = readBatteryVoltage();
-  updateBatteryState(initialVoltage);
-  displayVoltageReading(initialVoltage);
-  
-  // Update Morse pattern based on actual initial state
-  currentMorsePattern = getMorsePattern(currentState);
+  // Note: First voltage reading will appear after debouncing (1.5 seconds)
+  // This allows ADC to settle and provides accurate initial state
 }
 
 // ============================================================================
@@ -454,39 +451,6 @@ float readBatteryVoltage() {
 void updateBatteryState(float batteryVoltage) {
   // Determine what state the voltage indicates based on simple thresholds
   BatteryState measuredState;
-  
-  // On first reading, bypass hysteresis to get true initial state
-  if (isFirstReading) {
-    isFirstReading = false;
-    
-    // Simple threshold check without hysteresis for accurate startup state
-    if (batteryVoltage >= VOLTAGE_GOOD) {
-      measuredState = STATE_GOOD;
-    } else if (batteryVoltage >= VOLTAGE_SOFT_WARNING) {
-      measuredState = STATE_LOW;
-    } else if (batteryVoltage >= VOLTAGE_HARD_SHUTDOWN) {
-      measuredState = STATE_VERY_LOW;
-    } else if (batteryVoltage >= VOLTAGE_CRITICAL) {
-      measuredState = STATE_SHUTDOWN;
-    } else {
-      measuredState = STATE_CRITICAL;
-    }
-    
-    currentState = measuredState;
-    previousState = measuredState;
-    pendingState = measuredState;
-    
-    // Record entry time for initial state
-    switch (measuredState) {
-      case STATE_GOOD:      timeEnteredGood = 0; break;
-      case STATE_LOW:       timeEnteredLow = 0; break;
-      case STATE_VERY_LOW:  timeEnteredVeryLow = 0; break;
-      case STATE_SHUTDOWN:  timeEnteredShutdown = 0; break;
-      case STATE_CRITICAL:  timeEnteredCritical = 0; break;
-    }
-    
-    return; // Skip debouncing on first read
-  }
   
   // Simple threshold logic - no hysteresis
   // Debouncing (3 consecutive samples) filters noise and brief transients
@@ -618,8 +582,8 @@ void handleStateTransition() {
   
   logPrintln("========================================");
   logPrintln();
-  logPrintln(" Runtime | ADC  | Pin A9  | Battery | Cell Avg | Status");
-  logPrintln("---------+------+---------+---------+----------+-------------------");
+  logPrintln("     Timestamp        | Runtime       | ADC  | Pin A9  | Battery | Cell Avg | Status");
+  logPrintln("----------------------+---------------+------+---------+---------+----------+-------------------");
   
   // Display current reading after transition (use already-read batteryVoltage)
   displayVoltageReading(batteryVoltage);
