@@ -1,7 +1,7 @@
 /*
  * WX7V Foxhunt Controller - Battery Monitor Test Script
  * 
- * VERSION: 1.8
+ * VERSION: 2.0
  * 
  * PURPOSE: Standalone test for battery voltage monitoring circuit
  * 
@@ -47,6 +47,13 @@
  * v1.7 - Added date/time stamping for all log entries
  * v1.8 - SAFETY FIXES: Accurate initial state detection, improved transition logging,
  *        voltage reporting at transitions (bypasses hysteresis on first read)
+ * v1.9 - CRITICAL FIX: Corrected hysteresis logic - now allows immediate transitions to
+ *        worse states (safety) while preventing false recovery (stability). Previous
+ *        version incorrectly prevented LOW->VERY_LOW transitions.
+ * v2.0 - SIMPLIFIED: Removed hysteresis complexity entirely. Uses simple thresholds with
+ *        debouncing only. Updated thresholds: GOOD=14.5V, SHUTDOWN=13.2V (conservative).
+ *        Optimized for 60-second PTT transmissions in amateur radio foxhunt application.
+ *        Accepts temporary state changes during PTT as accurate load readings.
  */
 
 #include <SD.h>
@@ -55,7 +62,7 @@
 // ============================================================================
 // VERSION INFORMATION
 // ============================================================================
-const char* VERSION = "1.8";
+const char* VERSION = "2.0";
 const char* VERSION_DATE = "2026-02-15";
 
 // ============================================================================
@@ -80,13 +87,11 @@ const int ADC_MAX_VALUE = 1023;           // 2^10 - 1
 // BATTERY THRESHOLDS (4S LiPo)
 // ============================================================================
 const float VOLTAGE_FULL = 16.8;          // 4.20V per cell (fully charged)
-const float VOLTAGE_GOOD = 14.0;          // 3.50V per cell (good working voltage)
-const float VOLTAGE_SOFT_WARNING = 13.6;  // 3.40V per cell (low warning)
-const float VOLTAGE_HARD_SHUTDOWN = 12.8; // 3.20V per cell (shutdown recommended)
-const float VOLTAGE_CRITICAL = 12.0;      // 3.00V per cell (damage risk!)
-
-// Hysteresis for state changes (prevents bouncing near thresholds)
-const float VOLTAGE_HYSTERESIS = 0.2;     // 0.2V hysteresis band
+const float VOLTAGE_GOOD = 14.5;          // 3.63V per cell (healthy operation)
+const float VOLTAGE_LOW = 14.0;           // 3.50V per cell (getting low)
+const float VOLTAGE_VERY_LOW = 13.6;      // 3.40V per cell (replace soon)
+const float VOLTAGE_SHUTDOWN = 13.2;      // 3.30V per cell (stop operation - conservative)
+// Below 13.2V = CRITICAL (emergency, external BMS should disconnect)
 
 // Debounce settings (require multiple consecutive readings to change state)
 const int STATE_CHANGE_DEBOUNCE_COUNT = 3; // Require 3 consecutive readings
@@ -338,16 +343,19 @@ void setup() {
   Serial.println("V (4.20V/cell)");
   Serial.print("  GOOD:          ");
   Serial.print(VOLTAGE_GOOD);
+  Serial.println("V (3.63V/cell)");
+  Serial.print("  LOW:           ");
+  Serial.print(VOLTAGE_LOW);
   Serial.println("V (3.50V/cell)");
-  Serial.print("  SOFT WARNING:  ");
-  Serial.print(VOLTAGE_SOFT_WARNING);
+  Serial.print("  VERY LOW:      ");
+  Serial.print(VOLTAGE_VERY_LOW);
   Serial.println("V (3.40V/cell)");
-  Serial.print("  HARD SHUTDOWN: ");
-  Serial.print(VOLTAGE_HARD_SHUTDOWN);
-  Serial.println("V (3.20V/cell)");
-  Serial.print("  CRITICAL:      ");
-  Serial.print(VOLTAGE_CRITICAL);
-  Serial.println("V (3.00V/cell)");
+  Serial.print("  SHUTDOWN:      ");
+  Serial.print(VOLTAGE_SHUTDOWN);
+  Serial.println("V (3.30V/cell - conservative)");
+  Serial.println();
+  Serial.println("Note: No hysteresis - simple thresholds with debouncing");
+  Serial.println("      PTT voltage sag may cause temporary state changes");
   Serial.println();
   Serial.println("========================================");
   Serial.println("Starting continuous monitoring...");
@@ -480,44 +488,29 @@ void updateBatteryState(float batteryVoltage) {
     return; // Skip debouncing on first read
   }
   
-  // Simple threshold logic with hysteresis to prevent bouncing
-  // When voltage is falling (going to worse state): use threshold minus hysteresis
-  // When voltage is rising (recovering): use threshold plus hysteresis
+  // Simple threshold logic - no hysteresis
+  // Debouncing (3 consecutive samples) filters noise and brief transients
+  // Note: 60-second PTT events will trigger state changes (voltage sag is real)
   
   if (batteryVoltage >= VOLTAGE_GOOD) {
-    // Battery is healthy: > 14.0V
+    // Battery healthy: >= 14.5V (3.63V/cell)
     measuredState = STATE_GOOD;
     
-  } else if (batteryVoltage >= VOLTAGE_SOFT_WARNING) {
-    // Battery is getting low: 13.6V - 14.0V
-    // Apply hysteresis: if currently GOOD, need to drop below 13.6V - 0.2V to trigger LOW
-    // If currently LOW or worse, need to rise above 14.0V + 0.2V to return to GOOD
-    if (currentState == STATE_GOOD && batteryVoltage >= (VOLTAGE_SOFT_WARNING - VOLTAGE_HYSTERESIS)) {
-      measuredState = STATE_GOOD;  // Stay GOOD (hysteresis prevents immediate transition)
-    } else {
-      measuredState = STATE_LOW;
-    }
+  } else if (batteryVoltage >= VOLTAGE_LOW) {
+    // Battery getting low: 14.0V - 14.5V (3.50V - 3.63V/cell)
+    measuredState = STATE_LOW;
     
-  } else if (batteryVoltage >= VOLTAGE_HARD_SHUTDOWN) {
-    // Battery is very low: 12.8V - 13.6V
-    // Apply hysteresis similar to above
-    if (currentState == STATE_LOW && batteryVoltage >= (VOLTAGE_HARD_SHUTDOWN - VOLTAGE_HYSTERESIS)) {
-      measuredState = STATE_LOW;  // Stay LOW (hysteresis)
-    } else {
-      measuredState = STATE_VERY_LOW;
-    }
+  } else if (batteryVoltage >= VOLTAGE_VERY_LOW) {
+    // Battery very low: 13.6V - 14.0V (3.40V - 3.50V/cell)
+    measuredState = STATE_VERY_LOW;
     
-  } else if (batteryVoltage >= VOLTAGE_CRITICAL) {
-    // Battery is at shutdown threshold: 12.0V - 12.8V
-    // Apply hysteresis
-    if (currentState == STATE_VERY_LOW && batteryVoltage >= (VOLTAGE_CRITICAL - VOLTAGE_HYSTERESIS)) {
-      measuredState = STATE_VERY_LOW;  // Stay VERY_LOW (hysteresis)
-    } else {
-      measuredState = STATE_SHUTDOWN;
-    }
+  } else if (batteryVoltage >= VOLTAGE_SHUTDOWN) {
+    // Battery at shutdown threshold: 13.2V - 13.6V (3.30V - 3.40V/cell)
+    measuredState = STATE_SHUTDOWN;
     
   } else {
-    // Battery is critically low: < 12.0V (damage risk!)
+    // Battery critically low: < 13.2V (< 3.30V/cell)
+    // External BMS should disconnect before reaching here
     measuredState = STATE_CRITICAL;
   }
   
