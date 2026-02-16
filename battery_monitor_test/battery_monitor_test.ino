@@ -288,7 +288,7 @@ void setup() {
   // Initialize SD card logging
   Serial.print("Initializing SD card...");
   if (SD.begin(BUILTIN_SDCARD)) {
-    loggingEnabled = true;
+    loggingEnabled = false;
     Serial.println(" OK");
   } else {
     loggingEnabled = false;
