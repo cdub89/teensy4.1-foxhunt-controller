@@ -7,7 +7,7 @@ Dual-band radio "fox" (hidden transmitter) using a **Teensy 4.1** microcontrolle
 **Key Specifications:**
 - **Controller:** Teensy 4.1 (Cortex-M7 @ 600MHz)
 - **Radio:** Baofeng UV-5R (Kenwood 2-pin interface, LOW power: 1W)
-- **Power Source:** SOCOKIN 5200mAh 14.8V 4S LiPo
+- **Power Source:** Bioenno 4.5Ah 12.8V 4S LiFePO4
 - **Safety:** 5A inline fuse on main XT60 battery lead
 - **Housing:** Forest green ammo can with external antenna mount
 
@@ -15,18 +15,18 @@ Dual-band radio "fox" (hidden transmitter) using a **Teensy 4.1** microcontrolle
 
 ## Power Distribution System
 
-**Source:** 14.8V (4S) LiPo Battery via 5A Master Fuse
+**Source:** 12.8V (4S) LiFePO4 Battery via 5A Master Fuse
 
 | Module | Input | Output | Destination |
 |--------|-------|--------|-------------|
-| **Buck Converter A** | 14.8V | **8.0V - 12.0V*** | Baofeng UV-5R (via BL-5 Battery Eliminator) |
-| **Buck Converter B** | 14.8V | **5.0V** | Teensy 4.1 VIN Pin |
+| **Buck Converter A** | 12.8V | **8.0V** | Baofeng UV-5R (via BL-5 Battery Eliminator) |
+| **Buck Converter B** | 12.8V | **5.0V** | Teensy 4.1 VIN Pin |
 
-**\*Buck Converter A Voltage Selection:**  
-The optimal voltage depends on your specific battery eliminator model:
-- **8.0V** - For eliminators with direct pass-through or minimal regulation
-- **12.0V** - Provides headroom for eliminators with internal voltage regulators
-- **ACTION REQUIRED:** Use a multimeter during initial setup to test voltage at the radio's power connector. Set to the voltage that provides stable operation.
+**Buck Converter A Voltage Selection:**  
+- **8.0V** - REQUIRED for LiFePO4 (12.8V input needs 4.8V dropout headroom)
+- **ACTION REQUIRED:** Use a multimeter during initial setup to test voltage at the radio's power connector. Set to 8.0V for stable operation.
+
+**⚠️ CRITICAL:** 12V output setting provides insufficient dropout margin (0.8V). Always use 8.0V output setting with LiFePO4 batteries.
 
 **PRO-TIP:** Adjust and lock buck converter potentiometers using a multimeter *before* connecting Teensy or Radio to prevent over-voltage damage.
 
@@ -128,7 +128,7 @@ If you hear hum or buzz during transmission (ground loop noise):
 
 ## Battery Voltage Monitor Circuit
 
-**Critical Safety Feature:** Protects 4S LiPo from over-discharge damage
+**Critical Safety Feature:** Provides runtime tracking and protects battery cycle life through conservative discharge thresholds
 
 ### Circuit Design
 
@@ -152,38 +152,36 @@ If you hear hum or buzz during transmission (ground loop noise):
 
 **Formula:** \( V_{out} = V_{in} \times \frac{2.0}{10 + 2.0} = V_{in} \times \frac{1}{6} \)
 
-**Voltage Mapping Table:**
+**Voltage Mapping Table (LiFePO4):**
 
 | Battery Voltage | Cell Voltage | Pin A9 Voltage | ADC Reading (10-bit) | Status |
 |----------------|--------------|----------------|---------------------|---------|
-| 16.8V | 4.20V | 2.80V | 865 | Fully Charged |
-| 14.8V | 3.70V | 2.47V | 762 | Nominal |
-| 13.6V | 3.40V | 2.27V | 700 | ⚠️ Soft Warning |
-| 12.8V | 3.20V | 2.13V | 658 | 🛑 Hard Shutdown |
-| 12.0V | 3.00V | 2.00V | 617 | ⚠️ Critical Damage Risk |
+| 14.6V | 3.65V | 2.43V | 750 | Fully Charged |
+| 13.0V | 3.25V | 2.17V | 670 | Nominal |
+| 12.4V | 3.10V | 2.07V | 639 | ⚠️ Soft Warning |
+| 12.0V | 3.00V | 2.00V | 617 | ⚠️ Hard Warning |
+| 11.6V | 2.90V | 1.93V | 596 | 🛑 Hard Shutdown |
 
 **Reverse Calculation (ADC to Battery Voltage):**
 
 \[V_{battery} = \frac{ADC_{reading} \times 3.3V}{1023} \times 6.0\]
 
-### Safety Thresholds
+### Safety Thresholds (LiFePO4)
 
-**Soft Warning:** < 13.6V (3.4V per cell)
+**Soft Warning:** < 12.4V (3.1V per cell)
 - Action: Play "LOW BATTERY" warning via WAV file or Morse code
 - Frequency: Alert once every 5 transmission cycles
 - Behavior: Continue normal operation but notify operators
 - LED indication: Rapid pulse pattern (200ms on/off)
 
-**Hard Shutdown:** < 12.8V (3.2V per cell)
+**Hard Shutdown:** < 11.6V (2.9V per cell) - Conservative
 - Action: Immediate and permanent PTT disable
 - Set PTT pin to INPUT (high-impedance) to prevent accidental keying
 - Flash LED in SOS pattern (...---...) continuously
 - Enter deep sleep with periodic wake for SOS LED
 - No recovery without power cycle
 
-**Critical Damage:** < 12.0V (3.0V per cell)
-- LiPo cells may be permanently damaged at this voltage
-- Never discharge below this level
+**Note:** LiFePO4 can be safely discharged deeper than other lithium chemistries without damage, but conservative thresholds preserve battery cycle life and ensure reliable operation.
 
 ### Component Selection
 
@@ -194,11 +192,11 @@ If you hear hum or buzz during transmission (ground loop noise):
 ### Calibration Procedure
 
 1. Assemble voltage divider circuit
-2. Connect fully charged battery (16.8V)
+2. Connect fully charged battery (14.6V for LiFePO4)
 3. Measure actual voltage at Pin A9 with multimeter
-4. Calculate ratio: `actual_ratio = 16.8V / measured_voltage`
+4. Calculate ratio: `actual_ratio = 14.6V / measured_voltage`
 5. Update `VOLTAGE_DIVIDER_RATIO` constant in code
-6. Test at multiple voltage levels to verify accuracy
+6. Test at 13.0V and 12.4V to verify accuracy
 
 ### Wiring Notes
 
@@ -276,9 +274,9 @@ Before field deployment, verify all critical systems:
 | **Radio TX (1W LOW)** | ~350-400mA | From Buck A (8-12V supply) |
 | **Radio TX (4W HIGH)** | ~1.5A | NOT RECOMMENDED |
 
-**Battery Life Estimate:**
-- 60-second interval, 5-second transmission: **>24 hours** with 5200mAh pack
-- 30-second interval, 10-second transmission: ~12-15 hours
+**Battery Life Estimate (LiFePO4 4.5Ah):**
+- 60-second interval, 5-second transmission: **~18-20 hours**
+- 30-second interval, 10-second transmission: ~10-12 hours
 
 **Power Savings:**
 - CPU underclocking: 70-80% reduction (100mA → 20-30mA)

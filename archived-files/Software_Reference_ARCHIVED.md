@@ -18,6 +18,8 @@ const int LED_PIN = 13;       // Built-in LED (status indicator)
 const int BATTERY_PIN = A9;   // Analog Input (voltage divider)
 ```
 
+**CRITICAL:** For WAV file playback using the Teensy Audio Library with MQS output, the Teensy **MUST** run at **150 MHz or higher**. Set this in Arduino IDE: `Tools → CPU Speed → 150 MHz` (or higher). Lower speeds will cause WAV playback to fail due to insufficient SD card read/decode performance.
+
 ---
 
 ## Architecture Requirements
@@ -157,16 +159,16 @@ if (dutyCycle > MAX_DUTY_CYCLE) {
 
 ## Battery Watchdog System
 
-**Purpose:** Protect LiPo from over-discharge while providing early warning
+**Purpose:** Provide runtime tracking and protect battery cycle life through conservative discharge thresholds
 
-### Voltage Monitor Configuration
+### Voltage Monitor Configuration (LiFePO4)
 
 ```cpp
 const int BATTERY_PIN = A9;
 const float VOLTAGE_DIVIDER_RATIO = 6.0;  // (R1 + R2) / R2 = 12.0kΩ / 2.0kΩ
-const float SOFT_WARNING_THRESHOLD = 13.6;   // 3.4V per cell
-const float HARD_SHUTDOWN_THRESHOLD = 12.8;  // 3.2V per cell
-const float WARNING_CLEAR_THRESHOLD = 14.0;  // Hysteresis
+const float SOFT_WARNING_THRESHOLD = 12.4;   // 3.1V per cell
+const float HARD_SHUTDOWN_THRESHOLD = 11.6;  // 2.9V per cell (conservative)
+const float WARNING_CLEAR_THRESHOLD = 13.0;  // Hysteresis
 
 bool batteryWarningActive = false;
 bool batteryShutdownActive = false;
@@ -234,18 +236,18 @@ void checkBatteryStatus() {
 ```cpp
 // Battery state enumeration
 enum BatteryState {
-  STATE_GOOD,         // >= 14.0V (3.50V/cell)
-  STATE_LOW,          // >= 13.6V (3.40V/cell)
-  STATE_VERY_LOW,     // >= 12.8V (3.20V/cell)
-  STATE_SHUTDOWN,     // >= 12.0V (3.00V/cell)
-  STATE_CRITICAL      // < 12.0V (damage risk!)
+  STATE_GOOD,         // >= 13.0V (3.25V/cell)
+  STATE_LOW,          // >= 12.4V (3.10V/cell)
+  STATE_VERY_LOW,     // >= 12.0V (3.00V/cell)
+  STATE_SHUTDOWN,     // >= 11.6V (2.90V/cell)
+  STATE_CRITICAL      // < 11.6V (conservative limit)
 };
 
-// Battery thresholds with hysteresis
-const float VOLTAGE_GOOD = 14.0;             // 3.50V per cell
-const float VOLTAGE_SOFT_WARNING = 13.6;     // 3.40V per cell
-const float VOLTAGE_HARD_SHUTDOWN = 12.8;    // 3.20V per cell
-const float VOLTAGE_CRITICAL = 12.0;         // 3.00V per cell
+// Battery thresholds with hysteresis (LiFePO4)
+const float VOLTAGE_GOOD = 13.0;             // 3.25V per cell
+const float VOLTAGE_SOFT_WARNING = 12.4;     // 3.10V per cell
+const float VOLTAGE_HARD_SHUTDOWN = 11.6;    // 2.90V per cell (conservative)
+const float VOLTAGE_CRITICAL = 11.6;         // Same as hard shutdown
 const float VOLTAGE_HYSTERESIS = 0.2;        // 0.2V band prevents bouncing
 
 // Debounce settings
@@ -354,13 +356,13 @@ void updateBatteryState(float batteryVoltage) {
 
 **Example scenario:**
 ```
-Battery at 14.1V (GOOD)
-  → Noise spike: 13.9V (1/3)
-  → Next reading: 14.0V → Counter resets, stays GOOD ✓
+Battery at 13.1V (GOOD)
+  → Noise spike: 12.9V (1/3)
+  → Next reading: 13.0V → Counter resets, stays GOOD ✓
 
 Battery actually discharging
-  → 13.7V, 13.7V, 13.6V (3/3) → Changes to LOW
-  → Must reach 14.2V to return to GOOD (prevents bouncing)
+  → 12.3V, 12.3V, 12.2V (3/3) → Changes to LOW
+  → Must reach 13.2V to return to GOOD (prevents bouncing)
 ```
 
 ### Hard Shutdown Implementation
@@ -428,7 +430,7 @@ void blinkSOS() {
 **Safety Notes:**
 - ADC readings must be averaged (10 samples minimum) to reduce noise
 - Test with actual battery under load (radio transmitting) for accurate readings
-- Over-discharge below 3.0V/cell (12.0V total) permanently damages LiPo cells
+- Conservative thresholds protect battery cycle life and ensure reliable operation
 - Never bypass hard shutdown threshold
 
 ---

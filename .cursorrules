@@ -1,5 +1,17 @@
 # WX7V Foxhunt Controller Project Rules
 
+## ⚠️ DOCUMENTATION POLICY - READ FIRST ⚠️
+**BEFORE creating ANY new files, remember:**
+- ❌ **DO NOT** create extra markdown files (SPECS.md, SUMMARY.md, CHART.md, etc.)
+- ❌ **DO NOT** create setup guides, comparisons, or helper docs
+- ✅ **UPDATE** existing Hardware_Reference.md and Software_Reference.md ONLY
+- ✅ **ASK** user before creating any documentation beyond code + README
+
+**Allowed for new features:** Code file + ONE README.md in feature folder
+**Everything else:** Update existing docs or ask first
+
+---
+
 ## Project Context
 This project implements a dual-band radio "fox" (hidden transmitter) using a Teensy 4.1 microcontroller and Baofeng UV-5R radio for amateur radio foxhunt events.
 

@@ -41,7 +41,7 @@
  * v1.1 - Added ASCII-safe status indicators for IDE compatibility
  * v1.2 - Added runtime tracking and state transition logging
  * v1.3 - Added Morse code LED patterns and reduced serial output to 5-min intervals
- * v1.4 - Fixed voltage thresholds (GOOD now 14.0V vs 14.8V for realistic LiPo monitoring)
+ * v1.4 - Fixed voltage thresholds (GOOD now 13.0V for realistic LiFePO4 monitoring)
  * v1.5 - Enhanced Morse code with multi-letter messages (SG, OL, OV, SOS)
  * v1.6 - Added SD card logging
  * v1.7 - Added date/time stamping for all log entries
@@ -87,14 +87,14 @@ const int ADC_RESOLUTION = 10;            // 10-bit ADC (0-1023)
 const int ADC_MAX_VALUE = 1023;           // 2^10 - 1
 
 // ============================================================================
-// BATTERY THRESHOLDS (4S LiPo)
+// BATTERY THRESHOLDS (4S LiFePO4)
 // ============================================================================
-const float VOLTAGE_FULL = 16.8;          // 4.20V per cell (fully charged)
-const float VOLTAGE_GOOD = 14.5;          // 3.63V per cell (healthy operation)
-const float VOLTAGE_LOW = 14.0;           // 3.50V per cell (getting low)
-const float VOLTAGE_VERY_LOW = 13.6;      // 3.40V per cell (replace soon)
-const float VOLTAGE_SHUTDOWN = 13.2;      // 3.30V per cell (stop operation - conservative)
-// Below 13.2V = CRITICAL (emergency, external BMS should disconnect)
+const float VOLTAGE_FULL = 14.6;          // 3.65V per cell (fully charged)
+const float VOLTAGE_GOOD = 13.0;          // 3.25V per cell (healthy operation)
+const float VOLTAGE_LOW = 12.4;           // 3.10V per cell (getting low)
+const float VOLTAGE_VERY_LOW = 12.0;      // 3.00V per cell (replace soon)
+const float VOLTAGE_SHUTDOWN = 11.6;      // 2.90V per cell (stop operation - conservative)
+// Below 11.6V = CRITICAL (conservative limit to preserve cycle life)
 
 // Debounce settings (require multiple consecutive readings to change state)
 const int STATE_CHANGE_DEBOUNCE_COUNT = 3; // Require 3 consecutive readings
@@ -339,7 +339,7 @@ void setup() {
   Serial.println("  SOSS(SOS ...) = EMERGENCY/SHUTDOWN");
   Serial.println("  SOSC(SOS -.-.) = EMERGENCY/CRITICAL");
   Serial.println();
-  Serial.println("Battery Voltage Thresholds (4S LiPo):");
+  Serial.println("Battery Voltage Thresholds (4S LiFePO4):");
   Serial.print("  FULL:          ");
   Serial.print(VOLTAGE_FULL);
   Serial.println("V (4.20V/cell)");
