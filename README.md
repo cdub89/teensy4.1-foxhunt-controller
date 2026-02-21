@@ -7,8 +7,8 @@
 A robust radio "fox" (hidden transmitter) controller for amateur radio foxhunt events. Built on the Teensy 4.1 platform with support for both Morse code CW identification and WAV file audio playback using a Baofeng UV-5R radio.
 
 Working Demo at https://www.youtube.com/shorts/eFTWidu8624
+Audio sourced from https://www.nasa.gov/historical-sounds/
 
-Audio Sourced from Nasa https://www.nasa.gov/historical-sounds/
 ---
 
 ## 🦊 What is a Foxhunt?
