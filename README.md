@@ -8,6 +8,7 @@ A robust radio "fox" (hidden transmitter) controller for amateur radio foxhunt e
 
 Working Demo at https://www.youtube.com/shorts/eFTWidu8624
 
+Audio Sourced from Nasa https://www.nasa.gov/historical-sounds/
 ---
 
 ## 🦊 What is a Foxhunt?
