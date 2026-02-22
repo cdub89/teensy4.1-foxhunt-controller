@@ -55,7 +55,7 @@ These reference implementations proved the concept and provided working code pat
 
 **Production Controller** (`controller/controller-production/controller-production.ino`)
 
-**Version 1.2** - Stable production release with critical bug fixes:
+**Version 1.3** - Documentation alignment with Project Specification v2.0:
 
 **Core Features Implemented:**
 - ✅ Random WAV file selection (automatic SD card scanning)
@@ -68,11 +68,13 @@ These reference implementations proved the concept and provided working code pat
 - ✅ Reset cause detection for troubleshooting
 - ✅ Audio memory optimization (40 blocks)
 
-**Critical Bug Fixes (v1.2):**
-- ✅ Fixed SD card contention crash (logging disabled during WAV playback)
-- ✅ Added WAV file validation before playback
-- ✅ Improved error handling and diagnostics
-- ✅ Audio memory usage monitoring
+**Recent Updates (v1.3):**
+- ✅ Documentation aligned with Project Specification v2.0
+- ✅ Clarified power architecture (single buck for Teensy, optional buck for radio)
+- ✅ Updated performance metrics (60s TX cycle, 24.5 hour runtime)
+- ✅ Added Pin 10 MQS configuration details
+- ✅ Documented foil tape SD card fix
+- ✅ Standardized on 150 MHz minimum CPU speed
 
 **Field-Tested Performance:**
 - 8+ consecutive cycles with zero errors
@@ -84,7 +86,7 @@ These reference implementations proved the concept and provided working code pat
 
 **Hardware Requirements for Stability:**
 - Ferrite beads on radio and Teensy power lines (tight/snug fit)
-- RF shielding on SD card (aluminum tape or similar)
+- **Foil tape over SD card slot** (covers card slot opening - critical fix from field testing)
 - Class 10 or better SD card, freshly formatted FAT32
 
 **Ready for field deployment!**
@@ -106,13 +108,14 @@ After production system is stable:
 
 ### Core Components
 
-- **Teensy 4.1** microcontroller (Cortex-M7 @ 600MHz, underclocked to 24MHz)
+- **Teensy 4.1** microcontroller (Cortex-M7 @ 600MHz, configured to 150 MHz minimum)
 - **Baofeng UV-5R** radio (set to LOW power: 1W)
 - **2N2222 NPN transistor** (PTT control)
-- **12.8V 4S LiFePO4 battery** (Bioenno 4.5Ah recommended)
-- **Dual buck converters:**
-  - Buck A: 8.0V for radio (via battery eliminator)
-  - Buck B: 5.0V for Teensy VIN
+- **12V LiFePO4 battery** (Bioenno 4.5Ah recommended)
+- **Buck converter:** 5.0V for Teensy VIN
+- **BL-5 Battery Eliminator** for radio (direct from 12V battery)
+  - **Optional Buck A (8.0V):** May be required for cheaper off-market battery eliminators (field testing recommended)
+  - Quality BL-5 eliminators work directly from 12V battery
 - **MicroSD card** (8GB+, FAT32 formatted)
 - **5A inline fuse** (XT60 main battery lead)
 
@@ -137,17 +140,17 @@ After production system is stable:
 ### RF Suppression (FIELD-PROVEN)
 
 **Components:**
-- 0.1µF ceramic capacitor (104) - soldered across Buck A output
+- 0.1µF ceramic capacitor (104) - soldered across buck converter output
 - 3× snap-on ferrite cores:
   - Two (2) on radio power lines
   - One (1) on Teensy power lines
+- **Foil tape over SD card slot** - covers the card slot opening
 
-**Purpose:** Prevents RF coupling during 1W transmission (discovered during field testing)
+**Purpose:** Prevents RF coupling during 1W transmission and eliminates SD card read/write errors (discovered during field testing)
 
 ### Complete Documentation
 
-- **[Hardware_Reference.md](Hardware_Reference.md)** - Complete wiring diagrams, pinout, voltage divider calculations, grounding architecture, troubleshooting
-- **[Software_Reference.md](Software_Reference.md)** - Programming requirements, state machine examples, battery protection code, timing specifications
+- **[Project Specification v2.0.md](Project%20Specification%20v2.0.md)** - Complete wiring specifications, pinout, voltage calculations, power architecture, operational logic, and reference implementation examples
 
 ---
 
@@ -156,10 +159,11 @@ After production system is stable:
 | Function | Teensy Pin | Connection |
 |----------|-----------|------------|
 | **PTT Control** | Pin 2 | Digital Output → 1kΩ → 2N2222 base |
-| **Audio Out** | Pin 12 | MQS → 1kΩ → 10µF cap → 10kΩ pot → Radio mic |
+| **Audio Out (Primary)** | Pin 12 | MQS → 10µF cap → 1kΩ → 10kΩ pot → Radio mic |
+| **Audio Out (Secondary)** | Pin 10 | MQS → 10µF cap → 1kΩ → Ground (filter path) |
 | **Status LED** | Pin 13 | Built-in LED (heartbeat/TX/warning/SOS) |
 | **Battery Monitor** | Pin A9 | Via voltage divider (10kΩ + 2.0kΩ + 100nF cap) |
-| **Power In** | VIN | 5.0V from buck converter B |
+| **Power In** | VIN | 5.0V from buck converter |
 | **Ground** | GND | Star ground configuration (all grounds meet at ONE point) |
 
 ---
@@ -169,26 +173,27 @@ After production system is stable:
 ### 1. Review Documentation
 
 **Start here:**
-1. **[Hardware_Reference.md](Hardware_Reference.md)** - Complete hardware specifications
-2. **[Software_Reference.md](Software_Reference.md)** - Programming requirements and examples
+1. **[Project Specification v2.0.md](Project%20Specification%20v2.0.md)** - Master reference document (hardware specs, power architecture, operational requirements)
 
 **Reference implementations:**
-- `Morse Code Controller.mdc` - Working Morse code example
-- `Audio Controller Code.mdc` - Working audio playback example
+- `audio_wav_test/audio_wav_test.ino` - Audio and transmission control reference
+- `battery_monitor_test/battery_monitor_test.ino` - Battery monitoring reference
 
 ### 2. Build Hardware
 
-Follow wiring diagrams in `Hardware_Reference.md`:
+Follow wiring specifications in `Project Specification v2.0.md`:
 
-1. **Power system** - Dual buck converters with RF suppression
+1. **Power system** - 5V buck converter for Teensy, direct 12V to BL-5 eliminator (optional 8.0V buck for cheaper eliminators)
 2. **PTT circuit** - 2N2222 transistor with 1kΩ base resistor
-3. **Audio circuit** - 1kΩ resistor + 10µF cap + 10kΩ pot
-4. **Battery monitor** - Voltage divider on Pin A9
+3. **Audio circuit** - Dual MQS output (Pin 12 + Pin 10) with 1kΩ resistor + 10µF cap + 10kΩ pot
+4. **Battery monitor** - Voltage divider on Pin A9 (10kΩ + 2.0kΩ)
 5. **Star ground** - All grounds meet at one common point
 
-**Critical:** Install RF suppression components (ferrites + ceramic cap) or system may reboot during transmission.
-
-**LiFePO4 Buck Converter Setting:** Set Buck Converter A to **8.0V** output (12.8V input requires sufficient dropout margin).
+**Critical RF Suppression:** 
+- 2× ferrite beads on radio power lines
+- 1× ferrite bead on Teensy power line
+- 0.1µF ceramic capacitor across buck converter output
+- **Foil tape over SD card slot** (covers card slot opening, eliminates read/write errors during transmission)
 
 ### 3. Prepare SD Card
 
@@ -256,7 +261,7 @@ SD_CARD/
 4. Update `VOLTAGE_DIVIDER_RATIO` constant in code
 5. Test at 13.0V and 12.4V to verify accuracy
 
-See `Software_Reference.md` for complete calibration procedure.
+See `Project Specification v2.0.md` for voltage divider specifications and `battery_monitor_test/battery_monitor_test.ino` for calibration reference code.
 
 ---
 
@@ -278,14 +283,14 @@ This is **safety-critical code** - a stuck PTT can drain batteries, overheat equ
   - Continues operation (you have time to finish hunt)
   - Clears at 13.0V (hysteresis prevents spam)
   
-- **Hard Shutdown (11.6V / 2.9V per cell):**
+- **Hard Shutdown (10.8V / 2.7V per cell - LVP threshold):**
   - **IMMEDIATE** PTT disable (set to INPUT mode)
   - SOS LED pattern (...---...)
   - **PERMANENT** until power cycle
-  - Conservative threshold protects battery cycle life
+  - Conservative threshold protects LiFePO4 battery cycle life
 
 **3. PTT Timeout**
-- Maximum 30 seconds per transmission
+- Maximum 90 seconds per transmission
 - Emergency PTT release on timeout
 - Multiple fail-safe mechanisms
 
@@ -294,7 +299,7 @@ This is **safety-critical code** - a stuck PTT can drain batteries, overheat equ
 - Concurrent monitoring (battery, watchdog, timing)
 - No `delay()` calls in production code
 
-**Why 11.6V hard shutdown?** This conservative threshold (2.9V per cell) protects LiFePO4 battery cycle life and ensures reliable operation.
+**Why 10.8V hard shutdown?** This conservative LVP (Low Voltage Protection) threshold (2.7V per cell) protects LiFePO4 battery cycle life and ensures reliable operation per Project Specification v2.0.
 
 ---
 
@@ -302,10 +307,10 @@ This is **safety-critical code** - a stuck PTT can drain batteries, overheat equ
 
 ### Power Configuration
 
-**CPU Speed:** 150 MHz or higher (REQUIRED for v1.2)
-- Production controller requires 150 MHz minimum for stable WAV playback
-- 396 MHz recommended (good balance of performance and power)
-- Lower speeds (24 MHz) are insufficient for audio library operations
+**CPU Speed:** 150 MHz minimum (REQUIRED for v1.3)
+- Production controller requires 150 MHz minimum for stable WAV playback with SD card operations
+- 396 MHz recommended for optimal performance and power balance
+- Lower speeds will cause WAV playback to fail due to insufficient SD card read/decode performance
 - Set in Arduino IDE: Tools → CPU Speed → 150 MHz or higher
 
 **Radio Power:** LOW (1W)
@@ -320,48 +325,51 @@ This is **safety-critical code** - a stuck PTT can drain batteries, overheat equ
 
 | Metric | Value | Notes |
 |--------|-------|-------|
-| **Battery Life** | ~18-20 hours | 4.5Ah LiFePO4 @ 60s interval, 5s TX |
+| **Battery Life** | ~24.5 hours | 4.5Ah LiFePO4 @ 60s TX / 240s idle (5-min cycle) |
+| **Transmit Duration** | 60 seconds | Per cycle (Morse + WAV + Station ID) |
 | **PTT Pre-roll** | 1000ms | Required for Baofeng squelch opening |
 | **PTT Tail** | 500ms | After transmission ends |
-| **Duty Cycle** | 8.3% | 5s TX / 60s interval (safe for continuous operation) |
-| **Idle Current** | 20-30mA | @ 24MHz CPU, no transmission |
-| **TX Current** | 40-80mA | Teensy only (radio on separate 8V rail) |
+| **Duty Cycle** | 20% | 60s TX / 300s total cycle (safe for continuous operation) |
+| **Average Current** | ~164mA | Combined system average across TX/idle cycles |
+| **TX Current** | 40-80mA | Teensy only (radio on separate 12V rail) |
 | **Deep Sleep** | ~5mA | With Snooze library (future implementation) |
 
 ### Battery Voltage Monitoring
 
 | Battery Voltage | Cell Voltage | Pin A9 Voltage | Status |
 |----------------|--------------|----------------|---------|
-| 14.6V | 3.65V | 2.43V | Fully Charged |
+| 13.8V | 3.45V | 2.30V | Fully Charged (LiFePO4 max) |
 | 13.0V | 3.25V | 2.17V | Nominal |
 | 12.4V | 3.10V | 2.07V | ⚠️ Soft Warning |
 | 12.0V | 3.00V | 2.00V | ⚠️ Hard Warning |
-| 11.6V | 2.90V | 1.93V | 🛑 Hard Shutdown |
+| 10.8V | 2.70V | 1.80V | 🛑 Hard Shutdown (LVP threshold) |
+
+**Voltage Divider:** 10kΩ (R_High) + 2.0kΩ (R_Low) on Pin A9
 
 ---
 
 ## 📚 Documentation
 
-### Primary References
+### Primary Reference
 
-- **[Project Specification v2.0.md](Project%20Specification%20v2.0.md)** - Master reference document (hardware specs, power architecture, operational requirements)
-- **[CHANGELOG.md](CHANGELOG.md)** - Version history and detailed change log
+- **[Project Specification v2.0.md](Project%20Specification%20v2.0.md)** - **SINGLE SOURCE OF TRUTH** for hardware specs, power architecture, pinout, operational requirements, and implementation examples
 
 ### Production Code
 
-- **[controller-production.ino](controller/controller-production/controller-production.ino)** - Production controller v1.2 (field-ready)
+- **[controller-production.ino](controller/controller-production/controller-production.ino)** - Production controller v1.3 (field-ready)
 
-### Archived Reference Code (Phase 1)
+### Reference Implementations (from Project Specification v2.0)
 
-- **[Morse Code Controller.mdc](archived-files/Morse%20Code%20Controller.mdc)** - Simple CW transmission (blocking)
-- **[Audio Controller Code.mdc](archived-files/Audio%20Controller%20Code.mdc)** - WAV playback (blocking)
-- **[Hardware_Reference.md](archived-files/Hardware_Reference_ARCHIVED.md)** - Archived hardware documentation
-- **[Software_Reference.md](archived-files/Software_Reference_ARCHIVED.md)** - Archived software documentation
+- **[audio_wav_test/audio_wav_test.ino](audio_wav_test/audio_wav_test.ino)** - Audio & transmission control reference (WAV playback, Morse, PTT timing, MQS configuration)
+- **[battery_monitor_test/battery_monitor_test.ino](battery_monitor_test/battery_monitor_test.ino)** - Battery monitoring reference (voltage divider, 5-state system, debouncing, LED patterns)
 
-### Test Programs
+### Version History
 
-- **[battery_monitor_test](battery_monitor_test/)** - Battery voltage monitoring with SD logging, Morse LED patterns
-- **[audio_wav_test](audio_wav_test/)** - WAV playback testing and development
+- **[CHANGELOG.md](CHANGELOG.md)** - Detailed change log and version history
+
+### Archived Code (Phase 1 - Historical Reference Only)
+
+- **[archived-files/](archived-files/)** - Phase 1 blocking implementations (not for production use)
 
 ### Project Guidelines
 

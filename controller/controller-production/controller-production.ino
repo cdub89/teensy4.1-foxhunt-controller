@@ -1,7 +1,7 @@
 /*
  * WX7V Foxhunt Controller - Production Version
  * 
- * VERSION: 1.2
+ * VERSION: 1.3
  * 
  * PURPOSE: Production foxhunt controller with random WAV selection and battery monitoring
  * 
@@ -101,9 +101,18 @@
  * - FCC-compliant: Always transmits ID before shutdown
  * 
  * AUTHOR: WX7V
- * DATE: 2026-02-20
+ * DATE: 2026-02-22
  * 
  * VERSION HISTORY:
+ * v1.3 - Field logging optimization + PTT rolloff fix (2026-02-22)
+ *        - ADDED: Field Mode Logging flag (FIELD_MODE_LOGGING constant)
+ *        - Field mode reduces SD card operations by ~75% for 24-hour deployment
+ *        - Bench mode preserves detailed step-by-step logging for debugging
+ *        - Field mode logs: TX count, battery, selected file, errors only
+ *        - CRITICAL FIX: Moved SD card logging AFTER PTT release in Part 5
+ *        - Bug: SD card open/close operations were adding ~4 seconds of delay
+ *        - PTT now releases exactly 500ms after station ID completes
+ *        - Field testing revealed logging delays were extending PTT time to ~5 seconds
  * v1.2 - Critical stability fixes (2026-02-20)
  *        - FIXED: SD card contention crash (logging disabled during WAV playback)
  *        - Increased audio memory from 16 to 40 blocks for stability
@@ -132,13 +141,18 @@
 // ============================================================================
 // VERSION INFORMATION
 // ============================================================================
-const char* VERSION = "1.2";
-const char* VERSION_DATE = "2026-02-20";
+const char* VERSION = "1.3";
+const char* VERSION_DATE = "2026-02-22";
 
 // ============================================================================
 // CONFIGURATION - EDIT THESE FOR YOUR DEPLOYMENT
 // ============================================================================
 const char* CALLSIGN_ID = "WX7V/F";      // FCC station ID (change this!)
+
+// Field Mode Logging: Reduces SD card operations for 24-hour field deployment
+// true  = Minimal logging (TX count, battery, errors only) - recommended for field
+// false = Detailed logging (step-by-step progress) - use for bench testing/debugging
+const bool FIELD_MODE_LOGGING = true;
 
 // ============================================================================
 // PIN DEFINITIONS
@@ -454,6 +468,8 @@ void setup() {
   Serial.print("Cycle Interval: ");
   Serial.print(CYCLE_INTERVAL_MS / 1000);
   Serial.println(" seconds");
+  Serial.print("Logging Mode: ");
+  Serial.println(FIELD_MODE_LOGGING ? "FIELD (Minimal)" : "BENCH (Detailed)");
   Serial.println();
   
   Serial.println("TRANSMISSION SEQUENCE:");
@@ -571,6 +587,7 @@ void loop() {
 void runTransmissionCycle() {
   transmissionCount++;
   
+  // ALWAYS log transmission header (critical for field tracking)
   logPrintln();
   logPrintln("========================================");
   logPrint("TRANSMISSION CYCLE #");
@@ -578,7 +595,7 @@ void runTransmissionCycle() {
   printTimestamp();
   logPrintln();
   
-  // Read battery voltage
+  // ALWAYS log battery voltage (critical safety monitoring)
   float batteryVoltage = readBatteryVoltage();
   logPrint("Battery Voltage: ");
   logPrint(batteryVoltage, 2);
@@ -597,18 +614,26 @@ void runTransmissionCycle() {
   logPrintln("========================================");
   
   // ============== PART 1: PTT ON + PRE-ROLL ==============
-  logPrintln("\n[1/5] PTT ON + Pre-roll");
+  if (!FIELD_MODE_LOGGING) {
+    logPrintln("\n[1/5] PTT ON + Pre-roll");
+  }
   digitalWrite(PTT_PIN, HIGH);
   pttActive = true;
   pttStartTime = millis();
-  logPrint("  PTT keyed, waiting ");
-  logPrint((int)PTT_PREROLL_MS);
-  logPrintln(" ms for radio squelch...");
+  if (!FIELD_MODE_LOGGING) {
+    logPrint("  PTT keyed, waiting ");
+    logPrint((int)PTT_PREROLL_MS);
+    logPrintln(" ms for radio squelch...");
+  }
   delay(PTT_PREROLL_MS);
-  logPrintln("  Radio ready!");
+  if (!FIELD_MODE_LOGGING) {
+    logPrintln("  Radio ready!");
+  }
   
   // ============== PART 2: MORSE "V V V C" ==============
-  logPrintln("\n[2/5] Morse: 'V V V C' (Test/Confirmed)");
+  if (!FIELD_MODE_LOGGING) {
+    logPrintln("\n[2/5] Morse: 'V V V C' (Test/Confirmed)");
+  }
   sendMorseMessage("V V V C");
   delay(500);  // Brief pause after Morse
   
@@ -616,26 +641,30 @@ void runTransmissionCycle() {
   // Select random WAV file for this transmission
   String selectedFile = selectRandomWavFile();
   
-  logPrintln("\n[3/5] Playing WAV file");
-  logPrint("  Selected: ");
+  // ALWAYS log selected file (important for field tracking)
+  logPrint("Selected WAV: ");
   logPrintln(selectedFile);
   
   // Pre-flight check: Verify file exists and can be opened
   File testFile = SD.open(selectedFile.c_str());
   if (!testFile) {
-    logPrintln("  ERROR: Cannot open selected WAV file!");
-    logPrintln("  Skipping WAV playback...");
+    logPrintln("ERROR: Cannot open selected WAV file!");
+    logPrintln("Skipping WAV playback...");
   } else {
     unsigned long fileSize = testFile.size();
     testFile.close();
-    logPrint("  File size: ");
-    logPrint((int)fileSize);
-    logPrintln(" bytes");
+    if (!FIELD_MODE_LOGGING) {
+      logPrint("  File size: ");
+      logPrint((int)fileSize);
+      logPrintln(" bytes");
+    }
     
     // CRITICAL: Disable SD logging during WAV playback to prevent SD card contention
     bool loggingWasEnabled = loggingEnabled;
     loggingEnabled = false;  // Temporarily disable SD card logging
-    Serial.println("  [SD logging disabled during WAV playback to prevent conflicts]");
+    if (!FIELD_MODE_LOGGING) {
+      Serial.println("  [SD logging disabled during WAV playback to prevent conflicts]");
+    }
     
     // Start playback with retry logic
     bool playbackSuccess = false;
@@ -648,15 +677,19 @@ void runTransmissionCycle() {
       }
       
       if (attempt < MAX_PLAY_ATTEMPTS) {
-        logPrint("  Retry loading file (attempt ");
-        logPrint(attempt);
-        logPrintln(")");
+        if (!FIELD_MODE_LOGGING) {
+          logPrint("  Retry loading file (attempt ");
+          logPrint(attempt);
+          logPrintln(")");
+        }
         delay(300);
       }
     }
     
     if (playbackSuccess) {
-      logPrintln("  WAV playback initiated, waiting for audio stream...");
+      if (!FIELD_MODE_LOGGING) {
+        logPrintln("  WAV playback initiated, waiting for audio stream...");
+      }
       
       // Wait for playback to start (moved before memory checks for safety)
       unsigned long startWaitTime = millis();
@@ -664,7 +697,9 @@ void runTransmissionCycle() {
       while (millis() - startWaitTime < 500) {
         if (playWav1.isPlaying()) {
           playbackStarted = true;
-          logPrintln("  Audio stream started successfully!");
+          if (!FIELD_MODE_LOGGING) {
+            logPrintln("  Audio stream started successfully!");
+          }
           break;
         }
         delay(10);
@@ -673,8 +708,10 @@ void runTransmissionCycle() {
       // Report audio memory usage after stream starts
       if (playbackStarted) {
         delay(100);  // Brief delay to let audio stabilize
-        logPrint("  Audio Memory in use: ");
-        logPrintln(AudioMemoryUsage());
+        if (!FIELD_MODE_LOGGING) {
+          logPrint("  Audio Memory in use: ");
+          logPrintln(AudioMemoryUsage());
+        }
       }
     
     if (!playbackStarted) {
@@ -692,8 +729,8 @@ void runTransmissionCycle() {
       while (isPlaying) {
         unsigned long elapsed = millis() - playbackStartTime;
         
-        // Print progress every 10 seconds (simplified for stability)
-        if (elapsed - lastProgressUpdate >= 10000) {
+        // Print progress every 10 seconds (only if not in field mode)
+        if (!FIELD_MODE_LOGGING && (elapsed - lastProgressUpdate >= 10000)) {
           lastProgressUpdate = elapsed;
           logPrint("  Playing: ");
           logPrint((int)(elapsed / 1000));
@@ -707,21 +744,27 @@ void runTransmissionCycle() {
           // If file finished before 30 seconds, loop it
           if (filePlayTime < PLAYBACK_DURATION_MS) {
             if (!loopMode) {
-              logPrint("  File duration: ~");
-              logPrint((int)(filePlayTime / 1000));
-              logPrintln(" seconds (looping until 30s minimum)");
+              if (!FIELD_MODE_LOGGING) {
+                logPrint("  File duration: ~");
+                logPrint((int)(filePlayTime / 1000));
+                logPrintln(" seconds (looping until 30s minimum)");
+              }
               loopMode = true;
               fileDuration = filePlayTime;  // Save file duration for loop detection
             } else {
               // Check if we've reached minimum duration - if so, stop naturally
               if (elapsed >= PLAYBACK_DURATION_MS) {
-                logPrint("  Minimum duration reached (");
-                logPrint((int)(elapsed / 1000));
-                logPrintln("s), file loop complete");
+                if (!FIELD_MODE_LOGGING) {
+                  logPrint("  Minimum duration reached (");
+                  logPrint((int)(elapsed / 1000));
+                  logPrintln("s), file loop complete");
+                }
                 isPlaying = false;
                 break;
               }
-              logPrintln("  Looping file...");
+              if (!FIELD_MODE_LOGGING) {
+                logPrintln("  Looping file...");
+              }
             }
             
             delay(50);  // Brief pause before restart
@@ -736,9 +779,11 @@ void runTransmissionCycle() {
             }
           } else {
             // File was >= 30s, play to completion
-            logPrint("  File playback complete: ");
-            logPrint((int)(filePlayTime / 1000));
-            logPrintln(" seconds (played to completion)");
+            if (!FIELD_MODE_LOGGING) {
+              logPrint("  File playback complete: ");
+              logPrint((int)(filePlayTime / 1000));
+              logPrintln(" seconds (played to completion)");
+            }
             isPlaying = false;
             break;
           }
@@ -747,22 +792,26 @@ void runTransmissionCycle() {
         delay(100);  // Small delay for responsiveness
       }
       
-      logPrintln("  WAV playback complete");
+      if (!FIELD_MODE_LOGGING) {
+        logPrintln("  WAV playback complete");
+      }
       
       // Final audio memory report (safe check)
-      delay(50);
-      logPrint("  Peak Audio Memory: ");
-      logPrint(AudioMemoryUsageMax());
-      logPrintln(" blocks");
+      if (!FIELD_MODE_LOGGING) {
+        delay(50);
+        logPrint("  Peak Audio Memory: ");
+        logPrint(AudioMemoryUsageMax());
+        logPrintln(" blocks");
+      }
     }
     
     } else {
-      logPrintln("  ERROR: Could not start WAV playback after 3 attempts!");
+      logPrintln("ERROR: Could not start WAV playback after 3 attempts!");
     }
     
     // Re-enable SD logging after WAV playback completes
     loggingEnabled = loggingWasEnabled;
-    if (loggingEnabled) {
+    if (loggingEnabled && !FIELD_MODE_LOGGING) {
       Serial.println("  [SD logging re-enabled]");
     }
   }
@@ -770,23 +819,32 @@ void runTransmissionCycle() {
   delay(500);  // Brief pause after WAV
   
   // ============== PART 4: MORSE STATION ID (FCC REQUIRED) ==============
-  logPrintln("\n[4/5] Morse Station ID (FCC Required)");
+  if (!FIELD_MODE_LOGGING) {
+    logPrintln("\n[4/5] Morse Station ID (FCC Required)");
+  }
   sendMorseMessage(CALLSIGN_ID);
   
   // ============== PART 5: PTT OFF + TAIL ==============
-  logPrintln("\n[5/5] PTT OFF");
-  logPrint("  Tail delay: ");
-  logPrint((int)PTT_TAIL_MS);
-  logPrintln(" ms");
+  // CRITICAL: Release PTT immediately after tail delay (no logging delays!)
   delay(PTT_TAIL_MS);
   digitalWrite(PTT_PIN, LOW);
   pttActive = false;
-  logPrintln("  PTT un-keyed");
+  
+  // Log PTT release AFTER it's complete (prevents SD card delays from extending PTT time)
+  if (!FIELD_MODE_LOGGING) {
+    logPrintln("\n[5/5] PTT OFF");
+    logPrint("  Tail delay: ");
+    logPrint((int)PTT_TAIL_MS);
+    logPrintln(" ms");
+    logPrintln("  PTT un-keyed");
+  }
   
   unsigned long totalTxTime = millis() - pttStartTime;
-  logPrint("  Total TX time: ");
-  logPrint((int)(totalTxTime / 1000));
-  logPrintln(" seconds");
+  if (!FIELD_MODE_LOGGING) {
+    logPrint("  Total TX time: ");
+    logPrint((int)(totalTxTime / 1000));
+    logPrintln(" seconds");
+  }
   
   logPrintln("\n========================================");
   logPrintln("TRANSMISSION COMPLETE");
@@ -808,9 +866,11 @@ void runTransmissionCycle() {
     }
   }
   
-  logPrint("Next transmission in ");
-  logPrint((int)(CYCLE_INTERVAL_MS / 1000));
-  logPrintln(" seconds");
+  if (!FIELD_MODE_LOGGING) {
+    logPrint("Next transmission in ");
+    logPrint((int)(CYCLE_INTERVAL_MS / 1000));
+    logPrintln(" seconds");
+  }
   logPrintln("========================================\n");
 }
 
@@ -1053,9 +1113,11 @@ void updateMorseLED() {
 
 // Send a complete Morse code message
 void sendMorseMessage(const char* message) {
-  logPrint("  Sending: '");
-  logPrint(message);
-  logPrintln("'");
+  if (!FIELD_MODE_LOGGING) {
+    logPrint("  Sending: '");
+    logPrint(message);
+    logPrintln("'");
+  }
   
   int dotDuration = MORSE_DOT_DURATION;
   int dashDuration = dotDuration * 3;
@@ -1088,7 +1150,9 @@ void sendMorseMessage(const char* message) {
     }
   }
   
-  logPrintln("  Morse transmission complete");
+  if (!FIELD_MODE_LOGGING) {
+    logPrintln("  Morse transmission complete");
+  }
 }
 
 // Send a Morse code dit (dot)
